@@ -15,8 +15,10 @@ import { usePdfStore } from '@/store/usePdfStore'
 import {
   addRecentFile, loadRecentFileFull, updateRecentFile,
 } from '@/utils/recentFiles'
-import { mergePdf } from '@/utils/mergePdf'
-import { reorderPdfPages } from '@/utils/reorderPages'
+// `mergePdf` and `reorderPdfPages` both pull in pdf-lib (~700KB minified).
+// They're only used when the user clicks Merge or drags a thumbnail, so
+// import them dynamically below to keep the initial bundle small. Same
+// pattern as `buildPdf` in handleDownload.
 import { formatDate } from '@/utils/dateFormats'
 import type { PDFPageProxy } from 'pdfjs-dist'
 import type { Annotation, FontFamily } from '@/types'
@@ -83,6 +85,7 @@ export default function App() {
   const handleMergePdf = useCallback(async (file: File, where: 'start' | 'end') => {
     if (!pdfBytes) return
     try {
+      const { mergePdf } = await import('@/utils/mergePdf')
       const insertBytes = new Uint8Array(await file.arrayBuffer())
       const { bytes, insertedCount } = await mergePdf(pdfBytes, insertBytes, where)
       mergeIntoPdf(bytes, where, insertedCount)
@@ -105,6 +108,7 @@ export default function App() {
   const handleReorderPages = useCallback(async (newOrder: number[]) => {
     if (!pdfBytes) return
     try {
+      const { reorderPdfPages } = await import('@/utils/reorderPages')
       const bytes = await reorderPdfPages(pdfBytes, newOrder)
       reorderPages(bytes, newOrder)
       if (recentId) {
