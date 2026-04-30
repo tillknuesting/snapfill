@@ -34,6 +34,10 @@ interface PdfState {
   historyIdx: number
 
   setPdf: (bytes: Uint8Array, name: string, recentId?: string | null) => void
+  // Tear down the current document — pdfBytes back to null brings the
+  // empty state back. Used by the error UI in PdfViewer when a PDF fails
+  // to parse so the user can recover without reloading the page.
+  closePdf: () => void
   loadFromRecent: (
     bytes: Uint8Array, name: string, id: string,
     annotations: Annotation[], formFieldEdits: Array<[string, string | boolean]>,
@@ -103,6 +107,14 @@ export const usePdfStore = create<PdfState>((set, get) => ({
   formFieldEdits: new Map(),
   history: [[]],
   historyIdx: 0,
+
+  closePdf: () =>
+    set({
+      pdfBytes: null, fileName: '', recentId: null,
+      annotations: [], pages: [], formFieldEdits: new Map(),
+      selectedId: null, mode: 'idle',
+      history: [[]], historyIdx: 0,
+    }),
 
   setPdf: (pdfBytes, fileName, recentId = null) =>
     set({

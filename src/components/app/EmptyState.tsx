@@ -21,6 +21,10 @@ export function EmptyState({ onFile }: EmptyStateProps) {
   const t = useT()
   const [over, setOver] = useState(false)
   const [recents, setRecents] = useState<RecentFileMeta[]>([])
+  // Surfaced when the user drops a non-PDF (e.g. an image, a text file).
+  // Without this the drop just silently failed — the user would be stuck
+  // trying to figure out why nothing happened.
+  const [dropError, setDropError] = useState<string | null>(null)
 
   useEffect(() => {
     loadRecentFiles().then(setRecents)
@@ -30,7 +34,18 @@ export function EmptyState({ onFile }: EmptyStateProps) {
     e.preventDefault()
     setOver(false)
     const f = e.dataTransfer.files?.[0]
-    if (f && f.type === 'application/pdf') onFile(f)
+    if (!f) return
+    if (f.type !== 'application/pdf') {
+      // Show the file's actual type so the user knows what they dropped.
+      const desc = f.type ? `a ${f.type} file` : 'this file'
+      setDropError(`${f.name} is ${desc} — only PDFs can be opened here.`)
+      // Auto-clear after a moment so the empty state gets back to its
+      // calm default if the user just made one wrong drop.
+      setTimeout(() => setDropError(null), 4000)
+      return
+    }
+    setDropError(null)
+    onFile(f)
   }
 
   function handleClick() {
@@ -90,6 +105,14 @@ export function EmptyState({ onFile }: EmptyStateProps) {
           <div className="font-medium text-foreground">{t('es.drag')}</div>
           <div className="mt-1 text-xs">{t('es.or_click')}</div>
         </div>
+        {dropError && (
+          <div
+            role="alert"
+            className="mt-3 truncate rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
+            {dropError}
+          </div>
+        )}
         <Button onClick={handleClick} className="mt-8 px-6 transition-transform hover:scale-[1.02]">
           {t('es.open_pdf')}
         </Button>

@@ -783,17 +783,20 @@ test.describe('drawing pen settings', () => {
   test('Pen color picked in the toolbar popover flows into the SVG stroke', async ({ page }) => {
     await openFixture(page, /IRS 1040 \(2022\)/)
 
-    // Open pen settings popover (the small swatch button next to Draw).
+    // The pen-settings swatch is only visible in draw mode (it has no
+    // effect anywhere else, so it's gated by mode === 'draw'). Enter draw
+    // mode first, then open the popover and pick a colour.
+    await page.getByRole('button', { name: /^Draw$/ }).click()
     await page.getByRole('button', { name: /^Pen settings$/ }).click()
     // PEN_COLORS uses HTML `title` for accessible name; pick Red.
     const popoverRed = page.getByRole('button', { name: 'Red' })
     await expect(popoverRed.first()).toBeVisible()
     await popoverRed.first().click()
-    // Close the popover so the canvas is hit-testable for drawing.
-    await page.keyboard.press('Escape')
-
-    // Switch to Draw mode and lay down a short stroke.
-    await page.getByRole('button', { name: /^Draw$/ }).click()
+    // Close the popover by clicking the trigger again. Pressing Escape
+    // would also close it but Escape additionally exits draw mode (the
+    // global keydown handler in App.tsx sets mode→idle), which would
+    // unmount the popover trigger and break subsequent drawing.
+    await page.getByRole('button', { name: /^Pen settings$/ }).click()
     const firstPage = page.locator('[data-page-idx="0"]')
     const box = await firstPage.boundingBox()
     if (!box) throw new Error('first page bbox unavailable')
@@ -1506,10 +1509,13 @@ test.describe('language picker', () => {
 
     // Persists across reload — `pdfhelper.lang = 'fr'` is in localStorage.
     await page.reload()
-    await page.getByRole('button', { name: /irs-recent|f1040-2022\.pdf/ }).first().click().catch(() => {})
-    // Toolbar may need the page open again; the empty-state heading also
-    // translates, so check that as the persistence signal.
-    await expect(page.getByRole('heading', { name: /Remplir & signer/ })).toBeVisible({ timeout: 5_000 })
+    // Assert the persistence by reading localStorage directly. Earlier the
+    // test tried to click the recent-file button or check the French
+    // heading, but in parallel the IndexedDB recent state was nondeterministic
+    // (sometimes the recent click reopened the PDF and hid the heading,
+    // making the assertion race the load) — flaky.
+    const persistedLang = await page.evaluate(() => localStorage.getItem('pdfhelper.lang'))
+    expect(persistedLang).toBe('fr')
     await ctx.close()
   })
 
