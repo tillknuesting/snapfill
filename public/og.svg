@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fafafa"/>
+      <stop offset="1" stop-color="#e5e7eb"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f3f4f6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Decorative paper sheet -->
+  <g transform="translate(720,80)">
+    <rect width="380" height="470" rx="8" fill="url(#paper)" stroke="#000" stroke-width="2"/>
+    <rect x="32" y="48" width="240" height="14" rx="2" fill="#111"/>
+    <rect x="32" y="84" width="316" height="6" rx="1" fill="#9ca3af"/>
+    <rect x="32" y="98" width="280" height="6" rx="1" fill="#9ca3af"/>
+    <rect x="32" y="140" width="316" height="40" rx="3" fill="none" stroke="#3b82f6" stroke-width="2"/>
+    <text x="40" y="167" font-family="Inter,system-ui,sans-serif" font-size="20" fill="#1f2937">Jane Doe</text>
+    <rect x="32" y="200" width="148" height="40" rx="3" fill="none" stroke="#3b82f6" stroke-width="2"/>
+    <text x="40" y="227" font-family="Inter,system-ui,sans-serif" font-size="20" fill="#1f2937">2026-04-30</text>
+    <rect x="200" y="200" width="148" height="40" rx="3" fill="none" stroke="#3b82f6" stroke-width="2"/>
+    <text x="208" y="227" font-family="Inter,system-ui,sans-serif" font-size="20" fill="#1f2937">London</text>
+    <rect x="32" y="270" width="316" height="80" rx="3" fill="none" stroke="#000" stroke-width="2"/>
+    <path d="M 60 320 Q 100 290 140 320 T 220 320 T 300 305" stroke="#1d4ed8" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <text x="32" y="376" font-family="Inter,system-ui,sans-serif" font-size="11" fill="#6b7280">Signature</text>
+    <rect x="32" y="396" width="80" height="20" rx="2" fill="#000"/>
+    <text x="44" y="411" font-family="Inter,system-ui,sans-serif" font-size="13" fill="#fff" font-weight="600">DOWNLOAD</text>
+  </g>
+
+  <!-- Logo + headline -->
+  <g transform="translate(80,90)">
+    <rect width="64" height="64" rx="10" fill="#000"/>
+    <text x="84" y="44" font-family="Inter,system-ui,sans-serif" font-size="34" font-weight="700" fill="#000">PDF Helper</text>
+  </g>
+
+  <text x="80" y="240" font-family="Inter,system-ui,sans-serif" font-size="64" font-weight="800" fill="#000">Free PDF</text>
+  <text x="80" y="316" font-family="Inter,system-ui,sans-serif" font-size="64" font-weight="800" fill="#000">Form Filler</text>
+
+  <text x="80" y="380" font-family="Inter,system-ui,sans-serif" font-size="26" font-weight="500" fill="#374151">Fill, sign, and edit PDFs in your browser.</text>
+  <text x="80" y="416" font-family="Inter,system-ui,sans-serif" font-size="26" font-weight="500" fill="#374151">No sign-up, no upload. Files stay on your device.</text>
+
+  <!-- Pill features -->
+  <g transform="translate(80,470)" font-family="Inter,system-ui,sans-serif" font-size="18" font-weight="500">
+    <g>
+      <rect width="92" height="36" rx="18" fill="#000"/>
+      <text x="46" y="23" text-anchor="middle" fill="#fff">Free</text>
+    </g>
+    <g transform="translate(108,0)">
+      <rect width="116" height="36" rx="18" fill="#fff" stroke="#000" stroke-width="1.5"/>
+      <text x="58" y="23" text-anchor="middle" fill="#000">Private</text>
+    </g>
+    <g transform="translate(240,0)">
+      <rect width="158" height="36" rx="18" fill="#fff" stroke="#000" stroke-width="1.5"/>
+      <text x="79" y="23" text-anchor="middle" fill="#000">No upload</text>
+    </g>
+    <g transform="translate(414,0)">
+      <rect width="190" height="36" rx="18" fill="#fff" stroke="#000" stroke-width="1.5"/>
+      <text x="95" y="23" text-anchor="middle" fill="#000">12 languages</text>
+    </g>
+  </g>
+
+  <!-- URL -->
+  <text x="80" y="560" font-family="Inter,system-ui,sans-serif" font-size="20" font-weight="500" fill="#6b7280">pdf.r3f.co.uk</text>
+</svg>

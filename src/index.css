@@ -1,0 +1,252 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Theme — light by default; dark when the document root has the `.dark`
+ * class. A small inline script in index.html maps the OS preference (or
+ * the user's stored override) into that class before React mounts, so the
+ * effective theme is decided in *one* place: JavaScript. The CSS just
+ * carries two token sets.
+ *
+ * Both variants share an electric-cyan primary, but the light cyan is
+ * deeper (oklch 0.55 0.13 220 vs 0.86 0.18 198 in dark) so primary-
+ * foreground text on a primary fill clears AA contrast against white.
+ */
+:root {
+  --background:           oklch(0.992 0.002 230);
+  --foreground:           oklch(0.18 0.012 230);
+  --card:                 oklch(1 0 0);
+  --card-foreground:      oklch(0.18 0.012 230);
+  --popover:              oklch(1 0 0);
+  --popover-foreground:   oklch(0.18 0.012 230);
+  --primary:              oklch(0.55 0.13 220);
+  --primary-foreground:   oklch(0.99 0 0);
+  --secondary:            oklch(0.96 0.005 230);
+  --secondary-foreground: oklch(0.18 0.012 230);
+  --muted:                oklch(0.96 0.005 230);
+  --muted-foreground:     oklch(0.45 0.01 230);
+  --accent:               oklch(0.94 0.02 230);
+  --accent-foreground:    oklch(0.18 0.012 230);
+  --destructive:          oklch(0.58 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border:               oklch(0.92 0.005 230);
+  --input:                oklch(0.94 0.005 230);
+  --ring:                 oklch(0.55 0.13 220);
+  --radius:               0.5rem;
+}
+
+.dark {
+  --background:           oklch(0.105 0.006 230);
+  --foreground:           oklch(0.965 0.005 220);
+  --card:                 oklch(0.135 0.008 230);
+  --card-foreground:      oklch(0.965 0.005 220);
+  --popover:              oklch(0.155 0.008 230);
+  --popover-foreground:   oklch(0.965 0.005 220);
+  --primary:              oklch(0.86 0.18 198);
+  --primary-foreground:   oklch(0.105 0.006 230);
+  --secondary:            oklch(0.20 0.008 230);
+  --secondary-foreground: oklch(0.965 0.005 220);
+  --muted:                oklch(0.20 0.008 230);
+  --muted-foreground:     oklch(0.66 0.012 230);
+  --accent:               oklch(0.22 0.02 220);
+  --accent-foreground:    oklch(0.965 0.005 220);
+  --destructive:          oklch(0.65 0.22 27);
+  --destructive-foreground: oklch(0.97 0.005 220);
+  --border:               oklch(0.22 0.008 230);
+  --input:                oklch(0.22 0.008 230);
+  --ring:                 oklch(0.86 0.18 198);
+}
+
+/*
+ * Additional named themes. Each is a single class added to <html>; the dark-
+ * style ones also carry the existing `.dark` class so any Tailwind dark:
+ * utilities continue to flip correctly.
+ *
+ *   theme-sepia     — warm cream paper / brown ink for low-glare reading
+ *   theme-hc        — high-contrast accessibility preset (black/white/yellow)
+ *   theme-solarized — Ethan Schoonover's Solarized Dark
+ *   theme-dracula   — Zeno Rocha's Dracula
+ */
+.theme-sepia {
+  --background:           #f4ecd8;
+  --foreground:           #5b4636;
+  --card:                 #fbf5e3;
+  --card-foreground:      #5b4636;
+  --popover:              #fbf5e3;
+  --popover-foreground:   #5b4636;
+  --primary:              #8b6914;
+  --primary-foreground:   #fbf5e3;
+  --secondary:            #ece2c8;
+  --secondary-foreground: #5b4636;
+  --muted:                #ece2c8;
+  --muted-foreground:     #8a7660;
+  --accent:               #e8d8b3;
+  --accent-foreground:    #5b4636;
+  --destructive:          #b03a2e;
+  --destructive-foreground: #fbf5e3;
+  --border:               #d9cdb1;
+  --input:                #ece2c8;
+  --ring:                 #8b6914;
+}
+
+.theme-hc {
+  --background:           #000000;
+  --foreground:           #ffffff;
+  --card:                 #0a0a0a;
+  --card-foreground:      #ffffff;
+  --popover:              #0a0a0a;
+  --popover-foreground:   #ffffff;
+  --primary:              #ffeb3b;
+  --primary-foreground:   #000000;
+  --secondary:            #1a1a1a;
+  --secondary-foreground: #ffffff;
+  --muted:                #1a1a1a;
+  --muted-foreground:     #cccccc;
+  --accent:               #333333;
+  --accent-foreground:    #ffffff;
+  --destructive:          #ff5252;
+  --destructive-foreground: #000000;
+  --border:               #ffffff;
+  --input:                #1a1a1a;
+  --ring:                 #ffeb3b;
+}
+
+.theme-solarized {
+  --background:           #002b36;
+  --foreground:           #93a1a1;
+  --card:                 #073642;
+  --card-foreground:      #93a1a1;
+  --popover:              #073642;
+  --popover-foreground:   #93a1a1;
+  --primary:              #268bd2;
+  --primary-foreground:   #fdf6e3;
+  --secondary:            #073642;
+  --secondary-foreground: #93a1a1;
+  --muted:                #073642;
+  --muted-foreground:     #586e75;
+  --accent:               #073642;
+  --accent-foreground:    #93a1a1;
+  --destructive:          #dc322f;
+  --destructive-foreground: #fdf6e3;
+  --border:               #073642;
+  --input:                #073642;
+  --ring:                 #268bd2;
+}
+
+.theme-dracula {
+  --background:           #282a36;
+  --foreground:           #f8f8f2;
+  --card:                 #2e303e;
+  --card-foreground:      #f8f8f2;
+  --popover:              #2e303e;
+  --popover-foreground:   #f8f8f2;
+  --primary:              #bd93f9;
+  --primary-foreground:   #282a36;
+  --secondary:            #44475a;
+  --secondary-foreground: #f8f8f2;
+  --muted:                #44475a;
+  --muted-foreground:     #a8a9b3;
+  --accent:               #44475a;
+  --accent-foreground:    #f8f8f2;
+  --destructive:          #ff5555;
+  --destructive-foreground: #282a36;
+  --border:               #44475a;
+  --input:                #44475a;
+  --ring:                 #bd93f9;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: "Inter", "InterVariable", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@layer base {
+  * { border-color: var(--border); }
+
+  html, body, #root { height: 100%; margin: 0; }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv02", "cv03", "cv04";
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Hint browsers about both themes so form controls / scrollbars match. */
+    color-scheme: light dark;
+  }
+
+  /* Subtle dual-radial halo so the surface isn't completely flat.
+   * Tinted from --primary so it adapts automatically to whichever mode
+   * is active. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    background:
+      radial-gradient(60rem 35rem at 80% -10%, color-mix(in oklch, var(--primary) 8%, transparent), transparent 60%),
+      radial-gradient(45rem 30rem at -10% 110%, color-mix(in oklch, var(--primary) 5%, transparent), transparent 60%);
+  }
+}
+
+/* Frosted-glass utility for surfaces that float above the canvas (sidebar,
+ * popovers, banner). Pairs with a translucent bg in the component. */
+@layer utilities {
+  .frosted {
+    background-color: color-mix(in oklch, var(--card) 70%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+  }
+}
+
+/* Entrance animations — gated behind prefers-reduced-motion so users who
+ * request reduced motion get no entrance animations. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes slide-down-2 {
+    from { opacity: 0; transform: translateY(-0.5rem); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slide-right-2 {
+    from { opacity: 0; transform: translateX(-0.5rem); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes pop-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  .anim-fade-in     { animation: fade-in 180ms ease-out both; }
+  .anim-slide-down  { animation: slide-down-2 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  .anim-slide-right { animation: slide-right-2 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  .anim-pop-in      { animation: pop-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+}

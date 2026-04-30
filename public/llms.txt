@@ -1,0 +1,97 @@
+# PDF Helper — Free PDF Form Filler
+
+> Free, private, browser-only PDF form filler. Built specifically for filling
+> out PDF forms. Click on form fields and type, sign with mouse or touch, edit
+> existing PDF text, draw with a pen, insert dates and photos. Works fully
+> client-side — PDF files never leave the user's device.
+
+PDF Helper is a single-page web application at <https://pdf.r3f.co.uk/>. It
+is **100% free to use**, requires no sign-up, no account, no payment, and
+no upload. Files are processed entirely in the browser using pdf.js
+(rendering) and pdf-lib (output). There is no backend, no telemetry, and no
+ads. The application is free for any use — personal, commercial, or
+otherwise — by anyone with a modern browser (Chrome, Firefox, Safari, Edge).
+
+The primary purpose is **filling out PDF forms**: government forms, tax
+forms, contracts, applications, invoices, registration forms, and any
+fillable or print-and-sign PDF.
+
+## What it does
+
+- **Fill** — click on detected form rows ("snap") or anywhere on the page and
+  type. Snap detection uses vector-line clustering, drawn-rectangle boxes,
+  Acroform widget annotations, and printed text-label heuristics.
+- **Sign** — draw a signature with mouse/trackpad/touch, save it for reuse,
+  drop multiple variants on a page. Pure-black, ink-blue, and royal-blue
+  presets ship out of the box.
+- **Edit existing text** — click an existing word, get a draggable editor
+  that masks the original glyphs with a white cover and writes the new text
+  in the matching font.
+- **Draw** — freehand pen with adjustable color, width, opacity. Smooth
+  catmull-rom interpolation; throttled to one render per animation frame.
+- **Date** — locale-aware date insertion (DD.MM.YYYY for de, MM/DD/YYYY for
+  en-US, etc.).
+- **Image** — drop in a photo or scanned signature image.
+- **Profile + saved signatures** — store your common info once
+  (name, address, etc.), reuse across documents. Lives in localStorage.
+- **Recent files** — IndexedDB cache of recently-opened PDFs.
+
+## Privacy model
+
+The application is fully client-side. There is no backend.
+
+- The PDF you open is read into the browser via the File API or IndexedDB.
+- Annotations live in zustand store (in-memory).
+- The output PDF is generated in-browser and downloaded directly via Blob URL.
+- localStorage holds: theme, language, profile, saved signatures, recent file
+  metadata. None of this is transmitted anywhere.
+- The only network traffic is the initial bundle download from
+  pdf.r3f.co.uk and the Google Fonts CSS used for the handwriting fonts.
+
+## Languages
+
+Twelve UI languages with full string coverage:
+English, German (Deutsch), Spanish (Español), French (Français), Chinese
+(中文 简体), Japanese (日本語), Arabic (العربية, RTL), Hindi (हिन्दी),
+Bengali (বাংলা), Russian (Русский), Portuguese (Português),
+Indonesian (Bahasa Indonesia).
+
+Detected automatically from the browser locale on first open; user can
+override via the language picker (persisted in localStorage).
+
+## Themes
+
+Six manual themes plus "system" auto-follow: light, dark, sepia,
+high-contrast, solarized, dracula.
+
+## Bundled form fixtures
+
+The empty-state offers a few pre-loaded forms users can experiment with,
+covering common bureaucratic forms in the US and Germany:
+
+- US (IRS): 1040 (2010 + 2022), W-4, W-9, Schedule A
+- US (USCIS): I-9 (2011)
+- DE: Anmeldung (residence registration), Krankmeldung (sick note),
+  Kündigung (termination notice), Mietvertrag (rental contract),
+  Rechnung (invoice), DRV V0005 Rente (pension request)
+- Test/internal: Acroform widget samples for development
+
+## Technical stack
+
+- React 19 + Vite + TypeScript + Tailwind v4
+- shadcn/ui (Radix primitives) for accessible UI components
+- pdf.js for rendering, pdf-lib + @pdf-lib/fontkit for output, embedding
+  Noto Sans for Unicode (CJK, RTL, accented Latin) where the source font
+  doesn't cover the new glyphs.
+- zustand for state, IndexedDB (via fake-indexeddb in tests) for recent
+  files, localStorage for prefs.
+- Vitest (unit tests) + Playwright (E2E)
+- Hosted on Cloudflare Pages
+
+## License & origin
+
+Single-author project by Till Knüsting. Source not currently public.
+
+## Author
+
+Till Knüsting — <https://r3f.co.uk/>

@@ -1,0 +1,1338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PDF Helper — Fill & Sign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat&family=Homemade+Apple&family=Indie+Flower&family=Kalam&family=Shadows+Into+Light&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --border: #d8dbe0;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --danger: #dc2626;
+    --text: #111827;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 {
+    font-size: 16px;
+    margin: 0 16px 0 0;
+    font-weight: 600;
+  }
+  button, label.btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    color: var(--text);
+    user-select: none;
+  }
+  button:hover, label.btn:hover { background: #f9fafb; }
+  button.primary, label.btn.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  button.primary:hover, label.btn.primary:hover { background: var(--accent-hover); }
+  button.active {
+    background: #dbeafe;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  button:disabled, label.btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  input[type="file"] { display: none; }
+  .spacer { flex: 1; }
+  .toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    border-right: 1px solid var(--border);
+    height: 36px;
+  }
+  .toolbar-group:last-of-type { border-right: none; }
+  select, input[type="number"] {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 14px;
+    background: #fff;
+  }
+  .status {
+    color: var(--muted);
+    font-size: 13px;
+    padding: 0 8px;
+  }
+  main {
+    flex: 1;
+    overflow: auto;
+    padding: 24px;
+  }
+  #empty {
+    max-width: 480px;
+    margin: 80px auto;
+    text-align: center;
+    color: var(--muted);
+  }
+  #empty h2 { color: var(--text); margin-bottom: 8px; }
+  #empty .drop {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 48px 16px;
+    margin-top: 16px;
+    background: var(--panel);
+  }
+  #empty.dragover .drop {
+    border-color: var(--accent);
+    background: #eff6ff;
+  }
+  #pages {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .page-wrap {
+    position: relative;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    background: #fff;
+    line-height: 0;
+  }
+  .page-wrap canvas {
+    display: block;
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    line-height: normal;
+  }
+  .overlay.placing { cursor: crosshair; }
+
+  .annot {
+    position: absolute;
+    min-width: 24px;
+    min-height: 18px;
+    border: 1px dashed transparent;
+    cursor: move;
+  }
+  .annot:hover, .annot.selected {
+    border-color: var(--accent);
+  }
+  .annot .text-input {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: transparent;
+    outline: none;
+    padding: 2px 4px;
+    font-family: Helvetica, Arial, sans-serif;
+    color: #000;
+    resize: none;
+    overflow: hidden;
+    white-space: pre;
+  }
+  .annot.signature img {
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    display: block;
+  }
+  .annot .delete {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--danger);
+    color: #fff;
+    border: none;
+    font-size: 14px;
+    line-height: 22px;
+    padding: 0;
+    cursor: pointer;
+    display: none;
+  }
+  .annot:hover .delete, .annot.selected .delete { display: block; }
+  .annot .resize {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: var(--accent);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    display: none;
+    z-index: 2;
+  }
+  .annot .resize.tl { top: -6px;    left: -6px;  cursor: nwse-resize; }
+  .annot .resize.tr { top: -6px;    right: -6px; cursor: nesw-resize; }
+  .annot .resize.bl { bottom: -6px; left: -6px;  cursor: nesw-resize; }
+  .annot .resize.br { bottom: -6px; right: -6px; cursor: nwse-resize; }
+  .annot:hover .resize, .annot.selected .resize { display: block; }
+
+  /* Modal */
+  .modal-bg {
+    position: fixed;
+    inset: 0;
+    background: rgba(17, 24, 39, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal {
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    max-width: 95vw;
+  }
+  .modal h3 { margin: 0 0 12px 0; }
+  .modal .help { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  #sigCanvas {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    cursor: crosshair;
+    touch-action: none;
+    display: block;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .hidden { display: none !important; }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+  }
+  .tab {
+    padding: 8px 14px;
+    border: none;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    font-size: 14px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  .type-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  #typeName {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 14px;
+  }
+  #typeFont { min-width: 160px; }
+  #typeCanvas {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    display: block;
+  }
+
+  .saved-row {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .saved-row-label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  #savedThumbs {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .saved-thumb {
+    position: relative;
+    width: 110px;
+    height: 50px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .saved-thumb:hover { border-color: var(--accent); }
+  .saved-thumb img { max-width: 100%; max-height: 100%; pointer-events: none; }
+  .saved-thumb-del {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--danger);
+    color: #fff;
+    border: none;
+    font-size: 12px;
+    line-height: 18px;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  /* Select mode — drag/resize annotations as objects */
+  .overlay.mode-select { cursor: default; }
+  .overlay.mode-select .annot { cursor: move; }
+  .overlay.mode-select .annot .text-input,
+  .overlay.mode-select .annot.signature img { pointer-events: none; }
+  .overlay.mode-select .form-field { pointer-events: none; opacity: 0.55; }
+
+  /* Color swatches */
+  .color-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .color-row-label {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+  }
+  .swatch {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid #e5e7eb;
+    cursor: pointer;
+    padding: 0;
+  }
+  .swatch.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px #fff inset;
+  }
+
+  /* AcroForm field highlight */
+  .form-field {
+    position: absolute;
+    background: rgba(37, 99, 235, 0.08);
+    border: 1px solid rgba(37, 99, 235, 0.4);
+  }
+  .form-field input, .form-field textarea {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: transparent;
+    outline: none;
+    padding: 2px 4px;
+    font-family: Helvetica, Arial, sans-serif;
+    color: #000;
+  }
+  .form-field input[type="checkbox"] {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PDF Helper</h1>
+
+  <div class="toolbar-group">
+    <label class="btn primary" for="fileInput">Open PDF</label>
+    <input id="fileInput" type="file" accept="application/pdf" />
+  </div>
+
+  <div class="toolbar-group">
+    <button id="addTextBtn" disabled title="Click then click a page to add text">Add text</button>
+    <label class="status">Font</label>
+    <select id="textFont">
+      <option value="helv">Helvetica</option>
+      <option value="helvB">Helvetica Bold</option>
+      <option value="helvI">Helvetica Italic</option>
+      <option value="times">Times Roman</option>
+      <option value="timesB">Times Roman Bold</option>
+      <option value="timesI">Times Roman Italic</option>
+      <option value="cour">Courier</option>
+      <option value="courB">Courier Bold</option>
+    </select>
+    <label class="status">Size</label>
+    <input id="textSize" type="number" min="6" max="96" value="14" style="width: 60px" />
+    <button id="addSigBtn" disabled title="Draw or type a signature/initials, then click a page to place it">Add signature</button>
+    <button id="selectBtn" disabled title="Select, move, and resize annotations (Esc to exit)">Select</button>
+  </div>
+
+  <div class="toolbar-group">
+    <button id="undoBtn" disabled>Undo</button>
+    <button id="clearBtn" disabled>Clear all</button>
+  </div>
+
+  <div class="spacer"></div>
+
+  <span id="status" class="status"></span>
+
+  <div class="toolbar-group">
+    <button id="downloadBtn" class="primary" disabled>Download</button>
+  </div>
+</header>
+
+<main id="main">
+  <div id="empty">
+    <h2>Fill & sign a PDF</h2>
+    <p>Upload a PDF, click <b>Add text</b> to fill in fields, then <b>Add signature</b> to sign it. Everything stays in your browser.</p>
+    <div class="drop" id="drop">
+      <p>Drag a PDF here, or click <b>Open PDF</b> above.</p>
+    </div>
+  </div>
+  <div id="pages"></div>
+</main>
+
+<!-- Signature modal -->
+<div id="sigModal" class="modal-bg hidden">
+  <div class="modal">
+    <h3 id="sigModalTitle">Add signature</h3>
+    <div class="tabs">
+      <button class="tab active" data-tab="draw" type="button">Draw</button>
+      <button class="tab" data-tab="type" type="button">Type</button>
+    </div>
+
+    <div class="color-row">
+      <span class="color-row-label">Color</span>
+      <button type="button" class="swatch active" data-color="#0a1f3d" style="background:#0a1f3d" title="Black"></button>
+      <button type="button" class="swatch" data-color="#1d4ed8" style="background:#1d4ed8" title="Blue"></button>
+    </div>
+
+    <div id="drawMode">
+      <p class="help">Sign with your mouse or finger.</p>
+      <canvas id="sigCanvas" width="500" height="200"></canvas>
+    </div>
+
+    <div id="typeMode" class="hidden">
+      <p class="help" id="typeHelp">Type, then pick a handwriting style.</p>
+      <div class="type-controls">
+        <input id="typeName" type="text" placeholder="Your name" autocomplete="off" />
+        <select id="typeFont">
+          <option value="Caveat" style="font-family:'Caveat',cursive">Caveat</option>
+          <option value="Homemade Apple" style="font-family:'Homemade Apple',cursive">Homemade Apple</option>
+          <option value="Indie Flower" style="font-family:'Indie Flower',cursive">Indie Flower</option>
+          <option value="Kalam" style="font-family:'Kalam',cursive">Kalam</option>
+          <option value="Shadows Into Light" style="font-family:'Shadows Into Light',cursive">Shadows Into Light</option>
+        </select>
+      </div>
+      <canvas id="typeCanvas" width="500" height="200"></canvas>
+    </div>
+
+    <div id="savedRow" class="saved-row hidden">
+      <div class="saved-row-label">Saved — click to use</div>
+      <div id="savedThumbs"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button id="sigClearBtn" type="button">Clear</button>
+      <button id="sigCancelBtn" type="button">Cancel</button>
+      <button id="sigSaveBtn" class="primary" type="button">Use signature</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs" type="module"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script type="module">
+import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
+
+const { PDFDocument, StandardFonts, rgb } = PDFLib;
+
+// --- State ---
+const state = {
+  pdfBytes: null,        // Uint8Array of original PDF
+  pdfDoc: null,          // pdf.js doc
+  pages: [],             // [{ pageNum, wrap, canvas, overlay, cssWidth, cssHeight, pdfWidth, pdfHeight }]
+  annotations: [],       // [{ id, type:'text'|'signature', pageIdx, x, y, w, h, data, fontSize?, fontFamily? }]
+  mode: 'idle',          // 'idle' | 'text' | 'signature' | 'select'
+  pendingSignature: null,// dataURL
+  selectedId: null,
+  formFieldEdits: new Map(), // name -> value (for AcroForms)
+  sigColor: '#0a1f3d',   // current ink color (Black default; Blue alt)
+};
+
+// --- DOM refs ---
+const fileInput = document.getElementById('fileInput');
+const addTextBtn = document.getElementById('addTextBtn');
+const addSigBtn = document.getElementById('addSigBtn');
+const selectBtn = document.getElementById('selectBtn');
+const undoBtn = document.getElementById('undoBtn');
+const clearBtn = document.getElementById('clearBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const textSizeInput = document.getElementById('textSize');
+const textFontSelect = document.getElementById('textFont');
+const pagesEl = document.getElementById('pages');
+const emptyEl = document.getElementById('empty');
+const dropEl = document.getElementById('drop');
+const statusEl = document.getElementById('status');
+
+const sigModal = document.getElementById('sigModal');
+const sigCanvas = document.getElementById('sigCanvas');
+const sigClearBtn = document.getElementById('sigClearBtn');
+const sigCancelBtn = document.getElementById('sigCancelBtn');
+const sigSaveBtn = document.getElementById('sigSaveBtn');
+
+// --- File loading ---
+fileInput.addEventListener('change', e => {
+  const f = e.target.files?.[0];
+  if (f) loadFile(f);
+});
+['dragenter','dragover'].forEach(ev =>
+  emptyEl.addEventListener(ev, e => { e.preventDefault(); emptyEl.classList.add('dragover'); }));
+['dragleave','drop'].forEach(ev =>
+  emptyEl.addEventListener(ev, e => { e.preventDefault(); emptyEl.classList.remove('dragover'); }));
+emptyEl.addEventListener('drop', e => {
+  const f = e.dataTransfer.files?.[0];
+  if (f && f.type === 'application/pdf') loadFile(f);
+});
+
+async function loadFile(file) {
+  setStatus('Loading…');
+  const buf = await file.arrayBuffer();
+  state.pdfBytes = new Uint8Array(buf);
+  // pdf.js wants its own copy because it transfers the buffer
+  state.pdfDoc = await pdfjsLib.getDocument({ data: state.pdfBytes.slice() }).promise;
+  state.annotations = [];
+  state.formFieldEdits = new Map();
+  await renderAllPages();
+  emptyEl.classList.add('hidden');
+  [addTextBtn, addSigBtn, selectBtn, downloadBtn, clearBtn, undoBtn].forEach(b => b.disabled = false);
+  setStatus(`${state.pdfDoc.numPages} page${state.pdfDoc.numPages === 1 ? '' : 's'}`);
+}
+
+async function renderAllPages() {
+  pagesEl.innerHTML = '';
+  state.pages = [];
+  const targetWidth = Math.min(900, document.getElementById('main').clientWidth - 48);
+  for (let i = 1; i <= state.pdfDoc.numPages; i++) {
+    const page = await state.pdfDoc.getPage(i);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const scale = targetWidth / baseViewport.width;
+    const viewport = page.getViewport({ scale });
+
+    const wrap = document.createElement('div');
+    wrap.className = 'page-wrap';
+    wrap.style.width = viewport.width + 'px';
+    wrap.style.height = viewport.height + 'px';
+
+    const canvas = document.createElement('canvas');
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(viewport.width * dpr);
+    canvas.height = Math.floor(viewport.height * dpr);
+    canvas.style.width = viewport.width + 'px';
+    canvas.style.height = viewport.height + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay';
+
+    wrap.appendChild(canvas);
+    wrap.appendChild(overlay);
+    pagesEl.appendChild(wrap);
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const pageInfo = {
+      pageNum: i,
+      pageIdx: i - 1,
+      wrap, canvas, overlay,
+      cssWidth: viewport.width,
+      cssHeight: viewport.height,
+      pdfWidth: baseViewport.width,
+      pdfHeight: baseViewport.height,
+    };
+    state.pages.push(pageInfo);
+
+    // Render existing AcroForm fields as native HTML inputs
+    await renderFormFields(page, pageInfo, viewport);
+
+    overlay.addEventListener('click', e => onOverlayClick(e, pageInfo));
+  }
+}
+
+async function renderFormFields(pdfjsPage, pageInfo, viewport) {
+  const annots = await pdfjsPage.getAnnotations();
+  for (const a of annots) {
+    if (a.subtype !== 'Widget' || !a.fieldName) continue;
+    // Convert PDF rect -> CSS rect using viewport
+    const [x1, y1, x2, y2] = a.rect;
+    const [vx1, vy1] = viewport.convertToViewportPoint(x1, y1);
+    const [vx2, vy2] = viewport.convertToViewportPoint(x2, y2);
+    const left = Math.min(vx1, vx2);
+    const top = Math.min(vy1, vy2);
+    const width = Math.abs(vx2 - vx1);
+    const height = Math.abs(vy2 - vy1);
+
+    const box = document.createElement('div');
+    box.className = 'form-field';
+    box.style.left = left + 'px';
+    box.style.top = top + 'px';
+    box.style.width = width + 'px';
+    box.style.height = height + 'px';
+
+    let input;
+    if (a.fieldType === 'Tx') {
+      input = a.multiLine ? document.createElement('textarea') : document.createElement('input');
+      if (input.tagName === 'INPUT') input.type = 'text';
+      input.value = a.fieldValue || '';
+      input.addEventListener('input', () => state.formFieldEdits.set(a.fieldName, input.value));
+    } else if (a.fieldType === 'Btn' && a.checkBox) {
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!a.fieldValue && a.fieldValue !== 'Off';
+      input.addEventListener('change', () => state.formFieldEdits.set(a.fieldName, input.checked));
+    } else {
+      continue; // skip unsupported widget types (radios, dropdowns, signatures)
+    }
+    box.appendChild(input);
+    pageInfo.overlay.appendChild(box);
+  }
+}
+
+// --- Mode buttons ---
+addTextBtn.addEventListener('click', () => setMode(state.mode === 'text' ? 'idle' : 'text'));
+addSigBtn.addEventListener('click', () => {
+  if (state.mode === 'signature') { setMode('idle'); return; }
+  openSigModal();
+});
+selectBtn.addEventListener('click', () => setMode(state.mode === 'select' ? 'idle' : 'select'));
+
+clearBtn.addEventListener('click', () => {
+  if (!confirm('Remove all added text and signatures?')) return;
+  state.annotations = [];
+  state.selectedId = null;
+  redrawAnnotations();
+});
+undoBtn.addEventListener('click', () => {
+  state.annotations.pop();
+  redrawAnnotations();
+});
+
+function setMode(m) {
+  state.mode = m;
+  addTextBtn.classList.toggle('active', m === 'text');
+  addSigBtn.classList.toggle('active', m === 'signature');
+  selectBtn.classList.toggle('active', m === 'select');
+  for (const p of state.pages) {
+    p.overlay.classList.toggle('placing', m === 'text' || m === 'signature');
+    p.overlay.classList.toggle('mode-select', m === 'select');
+  }
+  if (m !== 'select') deselectAll();
+  setStatus(
+    m === 'text' ? 'Click a page to place text.' :
+    m === 'signature' ? 'Click a page to place your signature.' :
+    m === 'select' ? 'Click an item to select. Drag to move, drag a corner to resize. Esc to exit.' :
+    ''
+  );
+}
+
+function selectAnnotation(id) {
+  state.selectedId = id;
+  for (const p of state.pages) {
+    p.overlay.querySelectorAll('.annot').forEach(el =>
+      el.classList.toggle('selected', el.dataset.id === id));
+  }
+  const a = state.annotations.find(x => x.id === id);
+  if (a && a.type === 'text') {
+    textSizeInput.value = a.fontSize;
+    if (a.fontFamily) textFontSelect.value = normalizeFontId(a.fontFamily);
+  }
+}
+function deselectAll() {
+  state.selectedId = null;
+  for (const p of state.pages) {
+    p.overlay.querySelectorAll('.annot').forEach(el => el.classList.remove('selected'));
+  }
+}
+
+// Toolbar font/size controls also apply to currently-selected text annotation
+textSizeInput.addEventListener('input', () => {
+  if (state.mode !== 'select' || !state.selectedId) return;
+  const a = state.annotations.find(x => x.id === state.selectedId);
+  if (!a || a.type !== 'text') return;
+  a.fontSize = clampInt(textSizeInput.value, 6, 96, a.fontSize);
+  const el = document.querySelector(`.annot[data-id="${a.id}"]`);
+  const ta = el?.querySelector('.text-input');
+  if (ta) { ta.style.fontSize = a.fontSize + 'px'; autoGrowText(ta, a, el); }
+});
+textFontSelect.addEventListener('change', () => {
+  if (state.mode !== 'select' || !state.selectedId) return;
+  const a = state.annotations.find(x => x.id === state.selectedId);
+  if (!a || a.type !== 'text') return;
+  a.fontFamily = textFontSelect.value;
+  const el = document.querySelector(`.annot[data-id="${a.id}"]`);
+  const ta = el?.querySelector('.text-input');
+  if (ta) { applyFontTo(ta, a.fontFamily); autoGrowText(ta, a, el); }
+});
+
+window.addEventListener('keydown', e => {
+  const isTyping = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+  if (e.key === 'Escape' && !isTyping) {
+    if (state.mode !== 'idle') setMode('idle');
+  } else if (state.mode === 'select' && state.selectedId && !isTyping
+             && (e.key === 'Delete' || e.key === 'Backspace')) {
+    e.preventDefault();
+    state.annotations = state.annotations.filter(x => x.id !== state.selectedId);
+    state.selectedId = null;
+    redrawAnnotations();
+  }
+});
+
+const TEXT_FONTS = {
+  helv:   { std: 'Helvetica',         css: 'Helvetica, Arial, sans-serif',             weight: 400, italic: false },
+  helvB:  { std: 'HelveticaBold',     css: 'Helvetica, Arial, sans-serif',             weight: 700, italic: false },
+  helvI:  { std: 'HelveticaOblique',  css: 'Helvetica, Arial, sans-serif',             weight: 400, italic: true  },
+  times:  { std: 'TimesRoman',        css: 'Georgia, "Times New Roman", Times, serif', weight: 400, italic: false },
+  timesB: { std: 'TimesRomanBold',    css: 'Georgia, "Times New Roman", Times, serif', weight: 700, italic: false },
+  timesI: { std: 'TimesRomanItalic',  css: 'Georgia, "Times New Roman", Times, serif', weight: 400, italic: true  },
+  cour:   { std: 'Courier',           css: 'ui-monospace, Menlo, Consolas, monospace', weight: 400, italic: false },
+  courB:  { std: 'CourierBold',       css: 'ui-monospace, Menlo, Consolas, monospace', weight: 700, italic: false },
+};
+function normalizeFontId(id) {
+  if (id === 'sans')  return 'helv';
+  if (id === 'serif') return 'times';
+  if (id === 'mono')  return 'cour';
+  return TEXT_FONTS[id] ? id : 'helv';
+}
+function fontInfo(id) { return TEXT_FONTS[normalizeFontId(id)]; }
+function applyFontTo(node, id) {
+  const f = fontInfo(id);
+  node.style.fontFamily = f.css;
+  node.style.fontWeight = String(f.weight);
+  node.style.fontStyle = f.italic ? 'italic' : 'normal';
+}
+
+function setStatus(s) { statusEl.textContent = s; }
+
+// --- Placing & rendering annotations ---
+function onOverlayClick(e, pageInfo) {
+  if (state.mode === 'idle') return;
+  if (state.mode === 'select') {
+    if (e.target === pageInfo.overlay) deselectAll();
+    return;
+  }
+  // Ignore clicks that landed on existing annotations or form fields
+  if (e.target !== pageInfo.overlay) return;
+  const rect = pageInfo.overlay.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  if (state.mode === 'text') {
+    const fs = clampInt(textSizeInput.value, 6, 96, 14);
+    const a = {
+      id: crypto.randomUUID(),
+      type: 'text',
+      pageIdx: pageInfo.pageIdx,
+      x, y,
+      w: 200,
+      h: Math.round(fs * 1.6),
+      data: '',
+      fontSize: fs,
+      fontFamily: textFontSelect.value,
+    };
+    state.annotations.push(a);
+    redrawAnnotations();
+    const node = pageInfo.overlay.querySelector(`[data-id="${a.id}"] .text-input`);
+    if (node) node.focus();
+    setMode('idle');
+  } else if (state.mode === 'signature') {
+    const img = new Image();
+    img.onload = () => {
+      const w = 180;
+      const h = w * (img.height / img.width);
+      state.annotations.push({
+        id: crypto.randomUUID(),
+        type: 'signature',
+        pageIdx: pageInfo.pageIdx,
+        x: x - w / 2,
+        y: y - h / 2,
+        w, h,
+        data: state.pendingSignature,
+      });
+      redrawAnnotations();
+      setMode('idle');
+    };
+    img.src = state.pendingSignature;
+  }
+}
+
+function redrawAnnotations() {
+  // wipe existing annot nodes from each overlay (keep form-field nodes)
+  for (const p of state.pages) {
+    [...p.overlay.querySelectorAll('.annot')].forEach(n => n.remove());
+  }
+  for (const a of state.annotations) {
+    const page = state.pages[a.pageIdx];
+    if (!page) continue;
+    const el = buildAnnotElement(a, page);
+    page.overlay.appendChild(el);
+  }
+}
+
+function buildAnnotElement(a, page) {
+  const el = document.createElement('div');
+  el.className = 'annot ' + a.type;
+  el.dataset.id = a.id;
+  el.style.left = a.x + 'px';
+  el.style.top = a.y + 'px';
+  el.style.width = a.w + 'px';
+  el.style.height = a.h + 'px';
+
+  if (a.type === 'text') {
+    const ta = document.createElement('textarea');
+    ta.className = 'text-input';
+    ta.value = a.data;
+    ta.style.fontSize = a.fontSize + 'px';
+    applyFontTo(ta, a.fontFamily);
+    ta.rows = 1;
+    ta.addEventListener('input', () => {
+      a.data = ta.value;
+      autoGrowText(ta, a, el);
+    });
+    ta.addEventListener('mousedown', e => e.stopPropagation());
+    el.appendChild(ta);
+    setTimeout(() => autoGrowText(ta, a, el), 0);
+  } else if (a.type === 'signature') {
+    const img = document.createElement('img');
+    img.src = a.data;
+    el.appendChild(img);
+  }
+
+  const del = document.createElement('button');
+  del.className = 'delete';
+  del.textContent = '×';
+  del.title = 'Delete';
+  del.addEventListener('click', e => {
+    e.stopPropagation();
+    state.annotations = state.annotations.filter(x => x.id !== a.id);
+    if (state.selectedId === a.id) state.selectedId = null;
+    redrawAnnotations();
+  });
+  del.addEventListener('mousedown', e => e.stopPropagation());
+  el.appendChild(del);
+
+  // Four corner resize handles. Signature scales the image; text scales font.
+  for (const corner of ['tl', 'tr', 'bl', 'br']) {
+    const handle = document.createElement('div');
+    handle.className = 'resize ' + corner;
+    handle.addEventListener('mousedown', e =>
+      a.type === 'signature'
+        ? startResizeSig(e, a, el, corner)
+        : startResizeText(e, a, el, corner));
+    el.appendChild(handle);
+  }
+
+  el.addEventListener('mousedown', e => {
+    if (state.mode === 'select') selectAnnotation(a.id);
+    startDrag(e, a, el, page);
+  });
+  return el;
+}
+
+function autoGrowText(ta, a, el) {
+  // Measure content width/height
+  ta.style.height = 'auto';
+  ta.style.height = ta.scrollHeight + 'px';
+  ta.style.width = 'auto';
+  // Use scrollWidth + small padding
+  const w = Math.max(40, ta.scrollWidth + 8);
+  ta.style.width = w + 'px';
+  el.style.width = w + 'px';
+  el.style.height = ta.scrollHeight + 'px';
+  a.w = w;
+  a.h = ta.scrollHeight;
+}
+
+// --- Drag ---
+function startDrag(e, a, el, page) {
+  if (e.target.classList.contains('resize')) return;
+  e.preventDefault();
+  const startX = e.clientX, startY = e.clientY;
+  const origX = a.x, origY = a.y;
+  function onMove(ev) {
+    const nx = origX + (ev.clientX - startX);
+    const ny = origY + (ev.clientY - startY);
+    a.x = Math.max(0, Math.min(page.cssWidth - a.w, nx));
+    a.y = Math.max(0, Math.min(page.cssHeight - a.h, ny));
+    el.style.left = a.x + 'px';
+    el.style.top = a.y + 'px';
+  }
+  function onUp() {
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+  }
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}
+
+// --- Resize ---
+// `corner` is one of 'tl' | 'tr' | 'bl' | 'br'. We compute "outward" drag (away
+// from the box center) and anchor the opposite corner so the box grows naturally.
+function startResizeSig(e, a, el, corner) {
+  e.preventDefault();
+  e.stopPropagation();
+  const startX = e.clientX, startY = e.clientY;
+  const origX = a.x, origY = a.y, origW = a.w, origH = a.h;
+  const aspect = origH / origW;
+  const rx = corner.includes('r') ? 1 : -1;
+  const ry = corner.includes('b') ? 1 : -1;
+  const anchorRight = corner.includes('l');
+  const anchorBottom = corner.includes('t');
+  function onMove(ev) {
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    const outward = (dx * rx + dy * ry) / 2;
+    const newW = Math.max(40, origW + outward);
+    const newH = newW * aspect;
+    a.w = newW;
+    a.h = newH;
+    a.x = anchorRight ? origX + origW - newW : origX;
+    a.y = anchorBottom ? origY + origH - newH : origY;
+    el.style.width = newW + 'px';
+    el.style.height = newH + 'px';
+    el.style.left = a.x + 'px';
+    el.style.top = a.y + 'px';
+  }
+  function onUp() {
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+  }
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}
+
+function startResizeText(e, a, el, corner) {
+  e.preventDefault();
+  e.stopPropagation();
+  const startX = e.clientX, startY = e.clientY;
+  const origFs = a.fontSize;
+  const origX = a.x, origY = a.y, origW = a.w, origH = a.h;
+  const rx = corner.includes('r') ? 1 : -1;
+  const ry = corner.includes('b') ? 1 : -1;
+  const anchorRight = corner.includes('l');
+  const anchorBottom = corner.includes('t');
+  function onMove(ev) {
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    const outward = dx * rx + dy * ry;
+    const newFs = Math.max(6, Math.min(96, Math.round(origFs + outward / 4)));
+    if (newFs === a.fontSize) return;
+    a.fontSize = newFs;
+    const ta = el.querySelector('.text-input');
+    if (ta) {
+      ta.style.fontSize = newFs + 'px';
+      autoGrowText(ta, a, el);
+      if (anchorRight)  a.x = origX + origW - a.w;
+      if (anchorBottom) a.y = origY + origH - a.h;
+      el.style.left = a.x + 'px';
+      el.style.top  = a.y + 'px';
+    }
+    textSizeInput.value = newFs;
+  }
+  function onUp() {
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+  }
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}
+
+// --- Signature modal: tabs, draw, type, saved ---
+const STORAGE_KEY = 'pdfhelper.signatures';
+const HANDWRITING_FONTS = ['Caveat', 'Homemade Apple', 'Indie Flower', 'Kalam', 'Shadows Into Light'];
+
+let activeSigTab = 'draw';
+const typeNameInput = document.getElementById('typeName');
+const typeFontSelect = document.getElementById('typeFont');
+const typeCanvas = document.getElementById('typeCanvas');
+
+// Preload handwriting fonts so the first canvas render uses the right glyphs
+HANDWRITING_FONTS.forEach(f => { try { document.fonts.load(`72px "${f}"`); } catch {} });
+
+function openSigModal() {
+  typeNameInput.value = '';
+  sigModal.classList.remove('hidden');
+  clearSigCanvas();
+  setSigTab('draw');
+  renderSavedThumbs();
+}
+function closeSigModal() { sigModal.classList.add('hidden'); }
+
+// Color swatches in modal
+document.querySelectorAll('#sigModal .swatch').forEach(b => {
+  b.addEventListener('click', () => {
+    state.sigColor = b.dataset.color;
+    document.querySelectorAll('#sigModal .swatch').forEach(s => s.classList.remove('active'));
+    b.classList.add('active');
+    if (activeSigTab === 'type') renderTypedSignature();
+  });
+});
+
+function setSigTab(t) {
+  activeSigTab = t;
+  document.querySelectorAll('#sigModal .tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === t));
+  document.getElementById('drawMode').classList.toggle('hidden', t !== 'draw');
+  document.getElementById('typeMode').classList.toggle('hidden', t !== 'type');
+  if (t === 'type') renderTypedSignature();
+}
+document.querySelectorAll('#sigModal .tab').forEach(b =>
+  b.addEventListener('click', () => setSigTab(b.dataset.tab)));
+
+typeNameInput.addEventListener('input', renderTypedSignature);
+typeFontSelect.addEventListener('change', renderTypedSignature);
+
+async function renderTypedSignature() {
+  const text = typeNameInput.value;
+  const font = typeFontSelect.value;
+  const ctx = typeCanvas.getContext('2d');
+  ctx.clearRect(0, 0, typeCanvas.width, typeCanvas.height);
+  if (!text.trim()) return;
+  await document.fonts.load(`72px "${font}"`);
+  ctx.fillStyle = state.sigColor;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  let size = 72;
+  ctx.font = `${size}px "${font}", cursive`;
+  while (ctx.measureText(text).width > typeCanvas.width - 24 && size > 18) {
+    size -= 2;
+    ctx.font = `${size}px "${font}", cursive`;
+  }
+  ctx.fillText(text, typeCanvas.width / 2, typeCanvas.height / 2);
+}
+
+sigCancelBtn.addEventListener('click', closeSigModal);
+sigClearBtn.addEventListener('click', () => {
+  if (activeSigTab === 'draw') clearSigCanvas();
+  else { typeNameInput.value = ''; renderTypedSignature(); }
+});
+sigSaveBtn.addEventListener('click', () => {
+  let dataUrl;
+  if (activeSigTab === 'draw') {
+    if (isSigCanvasEmpty()) { alert('Please draw a signature first.'); return; }
+    dataUrl = trimSignature(sigCanvas);
+  } else {
+    if (!typeNameInput.value.trim()) { alert('Please type your name first.'); return; }
+    dataUrl = trimSignature(typeCanvas);
+  }
+  addSavedSignature(dataUrl);
+  state.pendingSignature = dataUrl;
+  closeSigModal();
+  setMode('signature');
+});
+
+// Saved signatures (localStorage) — survive page reloads
+function loadSavedSignatures() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
+}
+function persistSavedSignatures(list) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch {}
+}
+function addSavedSignature(dataUrl) {
+  const list = loadSavedSignatures().filter(s => s.dataUrl !== dataUrl);
+  list.unshift({ id: crypto.randomUUID(), dataUrl, createdAt: Date.now() });
+  if (list.length > 8) list.length = 8;
+  persistSavedSignatures(list);
+}
+function removeSavedSignature(id) {
+  persistSavedSignatures(loadSavedSignatures().filter(s => s.id !== id));
+}
+function renderSavedThumbs() {
+  const list = loadSavedSignatures();
+  const row = document.getElementById('savedRow');
+  const container = document.getElementById('savedThumbs');
+  container.innerHTML = '';
+  if (list.length === 0) { row.classList.add('hidden'); return; }
+  row.classList.remove('hidden');
+  for (const s of list) {
+    const wrap = document.createElement('div');
+    wrap.className = 'saved-thumb';
+    wrap.title = 'Click to use';
+    const img = document.createElement('img');
+    img.src = s.dataUrl;
+    wrap.appendChild(img);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'saved-thumb-del';
+    del.textContent = '×';
+    del.title = 'Delete saved signature';
+    del.addEventListener('click', e => {
+      e.stopPropagation();
+      removeSavedSignature(s.id);
+      renderSavedThumbs();
+    });
+    wrap.appendChild(del);
+    wrap.addEventListener('click', () => {
+      state.pendingSignature = s.dataUrl;
+      closeSigModal();
+      setMode('signature');
+    });
+    container.appendChild(wrap);
+  }
+}
+
+function clearSigCanvas() {
+  const ctx = sigCanvas.getContext('2d');
+  ctx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+}
+function isSigCanvasEmpty() {
+  const ctx = sigCanvas.getContext('2d');
+  const data = ctx.getImageData(0, 0, sigCanvas.width, sigCanvas.height).data;
+  for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) return false;
+  return true;
+}
+
+(function bindSigDrawing() {
+  let drawing = false, lastX = 0, lastY = 0;
+  const ctx = sigCanvas.getContext('2d');
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  function pos(e) {
+    const r = sigCanvas.getBoundingClientRect();
+    const t = e.touches?.[0] || e;
+    return [t.clientX - r.left, t.clientY - r.top];
+  }
+  function down(e) {
+    e.preventDefault();
+    drawing = true;
+    ctx.strokeStyle = state.sigColor;
+    ctx.lineWidth = 2.5;
+    [lastX, lastY] = pos(e);
+  }
+  function move(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const [x, y] = pos(e);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    lastX = x; lastY = y;
+  }
+  function up() { drawing = false; }
+  sigCanvas.addEventListener('mousedown', down);
+  sigCanvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
+  sigCanvas.addEventListener('touchstart', down);
+  sigCanvas.addEventListener('touchmove', move);
+  sigCanvas.addEventListener('touchend', up);
+})();
+
+// Trim transparent margins so the saved signature looks tight
+function trimSignature(canvas) {
+  const ctx = canvas.getContext('2d');
+  const { width, height } = canvas;
+  const data = ctx.getImageData(0, 0, width, height).data;
+  let minX = width, minY = height, maxX = 0, maxY = 0, found = false;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] !== 0) {
+        found = true;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (!found) return canvas.toDataURL('image/png');
+  const pad = 6;
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(width - 1, maxX + pad);
+  maxY = Math.min(height - 1, maxY + pad);
+  const w = maxX - minX + 1;
+  const h = maxY - minY + 1;
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  out.getContext('2d').drawImage(canvas, minX, minY, w, h, 0, 0, w, h);
+  return out.toDataURL('image/png');
+}
+
+// --- Download (flatten everything into the PDF) ---
+downloadBtn.addEventListener('click', async () => {
+  try {
+    setStatus('Building PDF…');
+    downloadBtn.disabled = true;
+    const out = await buildPdf();
+    const blob = new Blob([out], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'filled.pdf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setStatus('Done.');
+  } catch (err) {
+    console.error(err);
+    alert('Could not build PDF: ' + err.message);
+    setStatus('');
+  } finally {
+    downloadBtn.disabled = false;
+  }
+});
+
+async function buildPdf() {
+  const pdfDoc = await PDFDocument.load(state.pdfBytes);
+  const embeddedFonts = new Map();
+  async function getFont(family) {
+    const f = fontInfo(family);
+    if (!embeddedFonts.has(f.std)) {
+      embeddedFonts.set(f.std, await pdfDoc.embedFont(StandardFonts[f.std]));
+    }
+    return embeddedFonts.get(f.std);
+  }
+
+  // Apply AcroForm field edits
+  if (state.formFieldEdits.size > 0) {
+    const form = pdfDoc.getForm();
+    for (const [name, value] of state.formFieldEdits) {
+      try {
+        const field = form.getField(name);
+        const ctor = field.constructor.name;
+        if (ctor === 'PDFTextField') field.setText(String(value));
+        else if (ctor === 'PDFCheckBox') value ? field.check() : field.uncheck();
+      } catch { /* ignore unknown fields */ }
+    }
+    // Flatten so the values are baked in (no editable widgets)
+    try { form.flatten(); } catch { /* some forms can't be flattened cleanly; leave editable */ }
+  }
+
+  // Group annotations by page
+  const byPage = new Map();
+  for (const a of state.annotations) {
+    if (!byPage.has(a.pageIdx)) byPage.set(a.pageIdx, []);
+    byPage.get(a.pageIdx).push(a);
+  }
+
+  const pdfPages = pdfDoc.getPages();
+  // Cache embedded signature images by data URL
+  const sigCache = new Map();
+
+  for (const [pageIdx, list] of byPage) {
+    const pdfPage = pdfPages[pageIdx];
+    const info = state.pages[pageIdx];
+    if (!pdfPage || !info) continue;
+    const sx = info.pdfWidth / info.cssWidth;   // css -> pdf scale
+    const sy = info.pdfHeight / info.cssHeight;
+
+    for (const a of list) {
+      if (a.type === 'text') {
+        if (!a.data) continue;
+        const font = await getFont(a.fontFamily);
+        const lines = a.data.split('\n');
+        const fontSize = a.fontSize * sx;
+        const lineHeight = fontSize * 1.2;
+        const topPdfY = info.pdfHeight - a.y * sy;
+        for (let i = 0; i < lines.length; i++) {
+          const text = sanitizeForHelvetica(lines[i]);
+          if (!text) continue;
+          const baselineY = topPdfY - (i + 1) * lineHeight + (lineHeight - fontSize) / 2 + fontSize * 0.15;
+          pdfPage.drawText(text, {
+            x: a.x * sx + 4 * sx,
+            y: baselineY,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0),
+          });
+        }
+      } else if (a.type === 'signature') {
+        let img = sigCache.get(a.data);
+        if (!img) {
+          const bytes = dataUrlToBytes(a.data);
+          img = await pdfDoc.embedPng(bytes);
+          sigCache.set(a.data, img);
+        }
+        const w = a.w * sx;
+        const h = a.h * sy;
+        const x = a.x * sx;
+        const y = info.pdfHeight - (a.y + a.h) * sy;
+        pdfPage.drawImage(img, { x, y, width: w, height: h });
+      }
+    }
+  }
+
+  return await pdfDoc.save();
+}
+
+// pdf-lib's StandardFonts only support WinAnsi — strip anything that won't encode
+function sanitizeForHelvetica(s) {
+  return s.replace(/[^\x20-\x7E\xA0-\xFF]/g, '?');
+}
+
+function dataUrlToBytes(dataUrl) {
+  const b64 = dataUrl.split(',')[1];
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function clampInt(v, min, max, fallback) {
+  const n = parseInt(v, 10);
+  if (Number.isNaN(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+</script>
+
+</body>
+</html>

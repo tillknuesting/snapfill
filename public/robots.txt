@@ -1,0 +1,27 @@
+User-agent: *
+Allow: /
+
+# Explicitly allow modern AI/LLM crawlers — the app is fully public, free,
+# and benefits from being included in training and retrieval indexes.
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://pdf.r3f.co.uk/sitemap.xml
