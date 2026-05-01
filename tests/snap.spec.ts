@@ -14,7 +14,7 @@ import { test, expect, type Page } from '@playwright/test'
 test.beforeEach(async ({ page }, testInfo) => {
   if (!testInfo.titlePath.some((t) => t === 'onboarding tour')) {
     await page.addInitScript(() => {
-      try { localStorage.setItem('pdfhelper.onboardingDone', '1') } catch { /* ignore */ }
+      try { localStorage.setItem('pdfhelper.onboardingDone.v2', '1') } catch { /* ignore */ }
     })
   }
   await page.route('**/fixtures/forms/*.pdf', async (route) => {
@@ -1425,7 +1425,7 @@ test.describe('language picker', () => {
     const ctx = await browser.newContext({ locale: 'de-DE' })
     const page = await ctx.newPage()
     await page.addInitScript(() => {
-      try { localStorage.setItem('pdfhelper.onboardingDone', '1') } catch { /* ignore */ }
+      try { localStorage.setItem('pdfhelper.onboardingDone.v2', '1') } catch { /* ignore */ }
     })
     await page.goto('/')
     // Heading on the empty state translates to "PDF ausfüllen & unterschreiben".
@@ -1437,7 +1437,7 @@ test.describe('language picker', () => {
     const ctx = await browser.newContext({ locale: 'zh-CN' })
     const page = await ctx.newPage()
     await page.addInitScript(() => {
-      try { localStorage.setItem('pdfhelper.onboardingDone', '1') } catch { /* ignore */ }
+      try { localStorage.setItem('pdfhelper.onboardingDone.v2', '1') } catch { /* ignore */ }
     })
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /填写并签署/ })).toBeVisible()
@@ -1448,7 +1448,7 @@ test.describe('language picker', () => {
     const ctx = await browser.newContext({ locale: 'ja-JP' })
     const page = await ctx.newPage()
     await page.addInitScript(() => {
-      try { localStorage.setItem('pdfhelper.onboardingDone', '1') } catch { /* ignore */ }
+      try { localStorage.setItem('pdfhelper.onboardingDone.v2', '1') } catch { /* ignore */ }
     })
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /PDF を入力/ })).toBeVisible()
@@ -1459,7 +1459,7 @@ test.describe('language picker', () => {
     const ctx = await browser.newContext({ locale: 'ar-SA' })
     const page = await ctx.newPage()
     await page.addInitScript(() => {
-      try { localStorage.setItem('pdfhelper.onboardingDone', '1') } catch { /* ignore */ }
+      try { localStorage.setItem('pdfhelper.onboardingDone.v2', '1') } catch { /* ignore */ }
     })
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /تعبئة وتوقيع PDF/ })).toBeVisible()
@@ -1475,7 +1475,7 @@ test.describe('language picker', () => {
     const ctx = await browser.newContext({ locale: 'ar-SA' })
     const page = await ctx.newPage()
     await page.addInitScript(() => {
-      try { localStorage.setItem('pdfhelper.onboardingDone', '1') } catch { /* ignore */ }
+      try { localStorage.setItem('pdfhelper.onboardingDone.v2', '1') } catch { /* ignore */ }
     })
     await page.goto('/')
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
@@ -1489,7 +1489,7 @@ test.describe('language picker', () => {
     const ctx = await browser.newContext({ locale: 'en-US' })
     const page = await ctx.newPage()
     await page.addInitScript(() => {
-      try { localStorage.setItem('pdfhelper.onboardingDone', '1') } catch { /* ignore */ }
+      try { localStorage.setItem('pdfhelper.onboardingDone.v2', '1') } catch { /* ignore */ }
     })
     await page.goto('/?snap=debug')
     await page.locator('input[type="file"][accept="application/pdf"]').first()
@@ -1523,7 +1523,7 @@ test.describe('language picker', () => {
     const ctx = await browser.newContext({ locale: 'en-US' })
     const page = await ctx.newPage()
     await page.addInitScript(() => {
-      try { localStorage.setItem('pdfhelper.onboardingDone', '1') } catch { /* ignore */ }
+      try { localStorage.setItem('pdfhelper.onboardingDone.v2', '1') } catch { /* ignore */ }
     })
     await page.goto('/')
 

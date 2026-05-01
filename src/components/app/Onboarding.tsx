@@ -9,7 +9,11 @@ import { useT } from '@/utils/useT'
 // through the high-impact toolbar buttons. The tour is dismissable at any
 // point and never reappears once dismissed (or completed).
 
-const STORAGE_KEY = 'pdfhelper.onboardingDone'
+// Versioned storage key. Bump the suffix when the tour content changes
+// substantively — that way users who already dismissed an older version
+// see the new walkthrough once, instead of being permanently locked out.
+// v2: 16-step rewrite covering snap, image, merge, reorder, undo, zoom.
+const STORAGE_KEY = 'pdfhelper.onboardingDone.v2'
 
 interface Step {
   // CSS selector for the element to point at; null = centered welcome card.
@@ -59,11 +63,19 @@ function readDone(): boolean {
 function markDone() {
   try { localStorage.setItem(STORAGE_KEY, '1') } catch { /* ignore */ }
 }
+// `?tour=1` forces the tour to start regardless of the dismissal flag.
+// Useful for the user replaying the tour, for sharing the app with others,
+// and for devs verifying tour content during a session.
+function forceShow(): boolean {
+  if (typeof window === 'undefined') return false
+  try { return new URLSearchParams(window.location.search).get('tour') === '1' }
+  catch { return false }
+}
 
 export function Onboarding() {
   const t = useT()
   const pdfBytes = usePdfStore((s) => s.pdfBytes)
-  const [active, setActive] = useState<boolean>(() => !readDone())
+  const [active, setActive] = useState<boolean>(() => forceShow() || !readDone())
   const [step, setStep] = useState(0)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
