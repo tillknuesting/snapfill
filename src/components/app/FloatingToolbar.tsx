@@ -51,7 +51,7 @@ export function PenControls({ value, onChange }: PenControlsProps) {
     <>
       <div>
         <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">Color</div>
-        <div className="flex gap-1.5">
+        <div className="flex items-center gap-1.5">
           {PEN_COLORS.map((c) => (
             <button
               key={c.value}
@@ -62,6 +62,26 @@ export function PenControls({ value, onChange }: PenControlsProps) {
               style={{ background: c.value }}
             />
           ))}
+          {/* Custom-colour input. The native <input type="color"> opens the
+              OS picker — accessible, well-tested, no library needed. We
+              hide the native chrome and overlay our own swatch so it
+              matches the row. The wrapper handles the click without
+              losing the colour-input semantics for keyboard users. */}
+          <label
+            title="Custom colour"
+            className={`relative size-6 cursor-pointer rounded-full border-2 ${PEN_COLORS.some((c) => c.value === value.color) ? 'border-border' : 'border-primary ring-2 ring-primary/20'}`}
+            style={{
+              background: 'conic-gradient(from 0deg, #f43f5e, #f59e0b, #84cc16, #06b6d4, #6366f1, #d946ef, #f43f5e)',
+            }}
+          >
+            <input
+              type="color"
+              value={value.color}
+              onChange={(e) => onChange({ color: e.target.value })}
+              aria-label="Custom colour"
+              className="absolute inset-0 size-full cursor-pointer opacity-0"
+            />
+          </label>
         </div>
       </div>
       <div>

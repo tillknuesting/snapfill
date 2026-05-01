@@ -465,7 +465,7 @@ export function Toolbar(props: ToolbarProps) {
               <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 {t('tb.text_color')}
               </div>
-              <div className="flex gap-1.5">
+              <div className="flex items-center gap-1.5">
                 {PEN_COLORS.map((c) => (
                   <button
                     key={c.value}
@@ -482,6 +482,30 @@ export function Toolbar(props: ToolbarProps) {
                     style={{ background: c.value }}
                   />
                 ))}
+                {/* Custom-colour swatch — opens the OS native colour picker
+                    via a hidden <input type="color"> overlaid on a rainbow
+                    gradient circle. The current colour ring highlights this
+                    swatch when the value isn't one of the presets. */}
+                <label
+                  title={t('tb.custom_color')}
+                  className={cn(
+                    'relative size-6 cursor-pointer rounded-full border-2',
+                    PEN_COLORS.some((c) => c.value === colorValue)
+                      ? 'border-border'
+                      : 'border-primary ring-2 ring-primary/20',
+                  )}
+                  style={{
+                    background: 'conic-gradient(from 0deg, #f43f5e, #f59e0b, #84cc16, #06b6d4, #6366f1, #d946ef, #f43f5e)',
+                  }}
+                >
+                  <input
+                    type="color"
+                    value={colorValue}
+                    onChange={(e) => handleColorChange(e.target.value)}
+                    aria-label={t('tb.custom_color')}
+                    className="absolute inset-0 size-full cursor-pointer opacity-0"
+                  />
+                </label>
               </div>
             </PopoverContent>
           </Popover>

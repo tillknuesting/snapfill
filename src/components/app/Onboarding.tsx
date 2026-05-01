@@ -27,15 +27,26 @@ const PRE_OPEN_STEPS: Step[] = [
 
 // Targets keyed off the (translated) aria-label means we have to look up the
 // label per current language. Build the selector with the matching string.
+//
+// The order tracks a real workflow: most users hit Add Text first, then move
+// outward into the more specialised tools, then settings, then Download.
+// Reorder sits without a clear target (the thumbnail rail only shows on
+// viewports ≥ lg + multi-page docs); we centre that card.
 function buildPostOpenSteps(t: (k: string) => string): Step[] {
   return [
     { target: `button[aria-label="${t('tb.add_text')}"]`,      titleKey: 'ob.add_text.title', bodyKey: 'ob.add_text.body' },
+    { target: null,                                            titleKey: 'ob.snap.title',     bodyKey: 'ob.snap.body' },
     { target: `button[aria-label="${t('tb.edit_text')}"]`,     titleKey: 'ob.edit.title',     bodyKey: 'ob.edit.body' },
-    { target: `button[aria-label="${t('tb.add_signature')}"]`, titleKey: 'ob.sign.title',     bodyKey: 'ob.sign.body' },
-    { target: `button[aria-label="${t('tb.draw')}"]`,          titleKey: 'ob.draw.title',     bodyKey: 'ob.draw.body' },
     { target: `button[aria-label="${t('tb.insert_date')}"]`,   titleKey: 'ob.date.title',     bodyKey: 'ob.date.body' },
     { target: `button[aria-label="${t('tb.profile')}"]`,       titleKey: 'ob.profile.title',  bodyKey: 'ob.profile.body' },
+    { target: `button[aria-label="${t('tb.add_signature')}"]`, titleKey: 'ob.sign.title',     bodyKey: 'ob.sign.body' },
+    { target: `button[aria-label="${t('tb.draw')}"]`,          titleKey: 'ob.draw.title',     bodyKey: 'ob.draw.body' },
+    { target: `button[aria-label="${t('tb.add_image')}"]`,     titleKey: 'ob.image.title',    bodyKey: 'ob.image.body' },
     { target: `button[aria-label="${t('tb.select')}"]`,        titleKey: 'ob.select.title',   bodyKey: 'ob.select.body' },
+    { target: `button[aria-label="${t('tb.merge_pdf')}"]`,     titleKey: 'ob.merge.title',    bodyKey: 'ob.merge.body' },
+    { target: null,                                            titleKey: 'ob.reorder.title',  bodyKey: 'ob.reorder.body' },
+    { target: `button[aria-label="${t('tb.undo')}"]`,          titleKey: 'ob.undo.title',     bodyKey: 'ob.undo.body' },
+    { target: `button[aria-label="${t('tb.zoom_in')}"]`,       titleKey: 'ob.zoom.title',     bodyKey: 'ob.zoom.body' },
     { target: '[data-testid="lang-button"]',                   titleKey: 'ob.lang.title',     bodyKey: 'ob.lang.body' },
     { target: '[data-testid="theme-button"]',                  titleKey: 'ob.theme.title',    bodyKey: 'ob.theme.body' },
     { target: `button[aria-label="${t('tb.download')}"]`,      titleKey: 'ob.download.title', bodyKey: 'ob.download.body' },
