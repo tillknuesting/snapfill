@@ -80,12 +80,16 @@ export function Onboarding() {
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
   // Reset to step 0 when transitioning into post-open mode so the user sees
-  // the toolbar tour fresh after opening their first PDF.
+  // the toolbar tour fresh after opening their first PDF. Also re-activate
+  // the card if the user paused the tour at the end of pre-open by clicking
+  // through Welcome → Privacy without opening anything (next() pauses
+  // instead of dismissing in that case — see below).
   const [hasOpenedAtLeastOnce, setHasOpenedAtLeastOnce] = useState(false)
   useEffect(() => {
-    if (pdfBytes && !hasOpenedAtLeastOnce) {
+    if (pdfBytes && !hasOpenedAtLeastOnce && !readDone()) {
       setHasOpenedAtLeastOnce(true)
       setStep(0)
+      setActive(true)
     }
   }, [pdfBytes, hasOpenedAtLeastOnce])
 
@@ -137,7 +141,20 @@ export function Onboarding() {
     setActive(false)
   }
   function next() {
-    if (step + 1 >= steps.length) { dismiss(); return }
+    if (step + 1 >= steps.length) {
+      // End of pre-open with no PDF open yet: hide the card without marking
+      // the tour done. The useEffect above re-activates it (starting from
+      // post-open step 0) the moment the user opens a file. Without this
+      // pause-not-dismiss path, clicking through Welcome → Privacy
+      // permanently dismissed the tour and the user never saw the 16-step
+      // toolbar walkthrough.
+      if (!pdfBytes) {
+        setActive(false)
+        return
+      }
+      dismiss()
+      return
+    }
     setStep(step + 1)
   }
 
