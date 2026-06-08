@@ -16,6 +16,7 @@ import { PenControls, PEN_COLORS } from './FloatingToolbar'
 import { ThemeToggle } from './ThemeToggle'
 import { LanguagePicker } from './LanguagePicker'
 import { useT } from '@/utils/useT'
+import { formatPercent } from '@/utils/i18n'
 import { usePdfStore } from '@/store/usePdfStore'
 import { FAMILY_OPTIONS, normalizeFamily } from '@/utils/fonts'
 import { formatDate } from '@/utils/dateFormats'
@@ -220,6 +221,7 @@ export function Toolbar(props: ToolbarProps) {
   const setWatermark = usePdfStore((s) => s.setWatermark)
   const pageNumbers = usePdfStore((s) => s.pageNumbers)
   const setPageNumbers = usePdfStore((s) => s.setPageNumbers)
+  const lang = usePdfStore((s) => s.lang)
 
   async function handleImagePicker(file: File) {
     const v = validateImageFile(file)
@@ -355,7 +357,7 @@ export function Toolbar(props: ToolbarProps) {
         <label className="block space-y-1.5 text-sm">
           <span className="flex items-center justify-between text-xs font-medium text-muted-foreground">
             <span>{t('wm.opacity')}</span>
-            <span className="font-mono tabular-nums">{Math.round(watermark.opacity * 100)}%</span>
+            <span className="font-mono tabular-nums">{formatPercent(lang, watermark.opacity)}</span>
           </span>
           <input
             type="range"
@@ -785,7 +787,7 @@ export function Toolbar(props: ToolbarProps) {
                       onClick={() => setZoom(1)}
                       className="min-w-12 rounded px-2 font-mono text-xs tabular-nums text-muted-foreground hover:text-foreground disabled:opacity-50"
                     >
-                      {Math.round(zoom * 100)}%
+                      {formatPercent(lang, zoom)}
                     </button>
                     <Button
                       variant="ghost"
@@ -1258,7 +1260,7 @@ export function Toolbar(props: ToolbarProps) {
               onClick={() => setZoom(1)}
               className="h-10 min-w-12 shrink-0 rounded px-2 font-mono text-xs tabular-nums text-muted-foreground hover:text-foreground disabled:opacity-50 sm:h-8"
             >
-              {Math.round(zoom * 100)}%
+              {formatPercent(lang, zoom)}
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom">{t('tb.reset_zoom')}</TooltipContent>

@@ -8,6 +8,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Slider } from '@/components/ui/slider'
 import { DATE_FORMAT_OPTIONS, findDateFormatId } from '@/utils/dateFormats'
 import { useT } from '@/utils/useT'
+import { formatNumber, formatPercent } from '@/utils/i18n'
+import { usePdfStore } from '@/store/usePdfStore'
 
 interface PenSettings {
   color: string
@@ -49,6 +51,8 @@ interface PenControlsProps {
 
 export function PenControls({ value, onChange }: PenControlsProps) {
   const t = useT()
+  const lang = usePdfStore((s) => s.lang)
+  const widthLabel = formatNumber(lang, value.width, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
   return (
     <>
       <div>
@@ -90,7 +94,7 @@ export function PenControls({ value, onChange }: PenControlsProps) {
       <div>
         <div className="mb-1.5 flex items-center justify-between">
           <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('ft.width')}</span>
-          <span className="text-xs tabular-nums">{value.width.toFixed(1)} pt</span>
+          <span className="text-xs tabular-nums">{widthLabel} pt</span>
         </div>
         <Slider
           min={0.5}
@@ -103,7 +107,7 @@ export function PenControls({ value, onChange }: PenControlsProps) {
       <div>
         <div className="mb-1.5 flex items-center justify-between">
           <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('ft.opacity')}</span>
-          <span className="text-xs tabular-nums">{Math.round(value.opacity * 100)}%</span>
+          <span className="text-xs tabular-nums">{formatPercent(lang, value.opacity)}</span>
         </div>
         <Slider
           min={0.1}
@@ -121,6 +125,7 @@ export function FloatingToolbar({
   anchorLeft, anchorTop, richText, date, pen, onDelete,
 }: FloatingToolbarProps) {
   const t = useT()
+  const lang = usePdfStore((s) => s.lang)
   const [, force] = useState(0)
 
   useEffect(() => {
@@ -189,7 +194,9 @@ export function FloatingToolbar({
             </SelectTrigger>
             <SelectContent>
               {DATE_FORMAT_OPTIONS.map((o) => (
-                <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+                <SelectItem key={o.id} value={o.id}>
+                  {o.id === 'system' ? t('date.system_default') : o.label}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -205,7 +212,9 @@ export function FloatingToolbar({
                   className="size-3.5 rounded-full border"
                   style={{ background: pen.color, opacity: pen.opacity }}
                 />
-                <span className="text-xs tabular-nums">{pen.width.toFixed(1)} pt</span>
+                <span className="text-xs tabular-nums">
+                  {formatNumber(lang, pen.width, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} pt
+                </span>
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-56 space-y-3">

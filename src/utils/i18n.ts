@@ -164,6 +164,8 @@ export const baseTranslations = {
     'ft.italic':          'Italic',
     'ft.underline':       'Underline',
     'ft.delete':          'Delete',
+    // Date format picker
+    'date.system_default': 'System default',
     // Shared colour labels
     'color.black':        'Black',
     'color.blue':         'Blue',
@@ -1401,4 +1403,19 @@ export function translate(key: string, lang: Lang, vars?: TranslationVars): stri
     ?? baseTranslations.en[key as TranslationKey]
     ?? key
   return interpolate(template, vars)
+}
+
+export function formatNumber(lang: Lang, value: number, options?: Intl.NumberFormatOptions): string {
+  try {
+    return new Intl.NumberFormat(lang, options).format(value)
+  } catch {
+    return new Intl.NumberFormat('en', options).format(value)
+  }
+}
+
+export function formatPercent(lang: Lang, value: number): string {
+  return formatNumber(lang, value, {
+    style: 'percent',
+    maximumFractionDigits: 0,
+  })
 }
