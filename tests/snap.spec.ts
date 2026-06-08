@@ -981,12 +981,26 @@ test.describe('signature flow', () => {
     await page.getByRole('button', { name: /Add signature/ }).click()
     // Switch to the Type tab — easier to drive than the canvas Draw tab.
     await page.getByRole('tab', { name: /^Type$/ }).click()
-    await page.getByPlaceholder(/Your name/).fill('Tilo')
+    await page.locator('[role="tabpanel"][data-state="active"] input').first().fill('Tilo')
     await page.getByRole('button', { name: /Use signature/ }).click()
     // Modal closes; mode is now 'signature' with pendingSignature armed.
     await expect(page.getByRole('dialog')).toBeHidden()
     await page.locator('[data-page-idx="0"]').click({ position: { x: 240, y: 360 } })
     // The placed annotation is an <img> inside a [data-id] wrapper.
+    await expect(page.locator('[data-id] img').first()).toBeVisible()
+  })
+
+  test('Generate tab -> Shuffle -> Use signature -> click -> signature image annotation appears', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await page.getByRole('button', { name: /Add signature/ }).click()
+    await page.getByRole('tab', { name: /^Generate$/ }).click()
+    const activePanel = page.locator('[role="tabpanel"][data-state="active"]')
+    await activePanel.locator('input').first().fill('Tilo Knopfler')
+    await activePanel.getByRole('button', { name: /^Shuffle$/ }).click()
+    await activePanel.getByRole('button', { name: /^Use signature$/ }).click()
+
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await page.locator('[data-page-idx="0"]').click({ position: { x: 240, y: 360 } })
     await expect(page.locator('[data-id] img').first()).toBeVisible()
   })
 

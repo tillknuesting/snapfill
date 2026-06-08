@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { RefreshCcw, X } from 'lucide-react'
 import { useT } from '@/utils/useT'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -9,6 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label'
 import { usePdfStore } from '@/store/usePdfStore'
 import { HANDWRITING_FONTS, type HandwritingFont } from '@/utils/fonts'
+import {
+  generateSignaturePlan,
+  renderSignaturePlan,
+  type GeneratedSignatureStyle,
+} from '@/utils/signatureGenerator'
 import { trimCanvas } from '@/utils/trimSignature'
 import {
   addSavedSignature,
@@ -36,9 +41,13 @@ export function SignatureModal({ open, onOpenChange }: Props) {
   const setPendingSignature = usePdfStore((s) => s.setPendingSignature)
   const setMode = usePdfStore((s) => s.setMode)
 
-  const [tab, setTab] = useState<'draw' | 'type'>('draw')
+  const [tab, setTab] = useState<'draw' | 'type' | 'generate'>('draw')
   const [typedText, setTypedText] = useState('')
   const [typedFont, setTypedFont] = useState<HandwritingFont>('Caveat')
+  const [generatedStyle, setGeneratedStyle] = useState<GeneratedSignatureStyle>('flowing')
+  const [generatedSeed, setGeneratedSeed] = useState(1)
+  const [generatedLegibility, setGeneratedLegibility] = useState(0.58)
+  const [generatedFlourish, setGeneratedFlourish] = useState(0.7)
   const [saved, setSaved] = useState<SavedSignature[]>([])
 
   // Reset on open
@@ -49,6 +58,10 @@ export function SignatureModal({ open, onOpenChange }: Props) {
       if (cancelled) return
       setTab('draw')
       setTypedText('')
+      setGeneratedStyle('flowing')
+      setGeneratedSeed((s) => s + 1)
+      setGeneratedLegibility(0.58)
+      setGeneratedFlourish(0.7)
       setSaved(loadSavedSignatures())
     })
     return () => { cancelled = true }
@@ -97,10 +110,11 @@ export function SignatureModal({ open, onOpenChange }: Props) {
           ))}
         </div>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as 'draw' | 'type')} className="mt-2">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as 'draw' | 'type' | 'generate')} className="mt-2">
           <TabsList>
             <TabsTrigger value="draw">{t('sm.tab.draw')}</TabsTrigger>
             <TabsTrigger value="type">{t('sm.tab.type')}</TabsTrigger>
+            <TabsTrigger value="generate">{t('sm.tab.generate')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="draw" className="mt-3">
@@ -114,6 +128,23 @@ export function SignatureModal({ open, onOpenChange }: Props) {
               font={typedFont}
               setFont={setTypedFont}
               color={sigColor}
+              onCommit={commitDataUrl}
+            />
+          </TabsContent>
+
+          <TabsContent value="generate" className="mt-3">
+            <GeneratedPad
+              text={typedText}
+              setText={setTypedText}
+              color={sigColor}
+              style={generatedStyle}
+              setStyle={setGeneratedStyle}
+              seed={generatedSeed}
+              setSeed={setGeneratedSeed}
+              legibility={generatedLegibility}
+              setLegibility={setGeneratedLegibility}
+              flourish={generatedFlourish}
+              setFlourish={setGeneratedFlourish}
               onCommit={commitDataUrl}
             />
           </TabsContent>
@@ -315,6 +346,125 @@ function TypePad({ text, setText, font, setFont, color, onCommit }: TypePadProps
       </div>
       {/* Hidden Label keeps shadcn/Label visible to tree-shaker if no other use */}
       <Label className="sr-only">{tType('sm.signature_text')}</Label>
+    </div>
+  )
+}
+
+interface GeneratedPadProps {
+  text: string
+  setText: (s: string) => void
+  color: string
+  style: GeneratedSignatureStyle
+  setStyle: (style: GeneratedSignatureStyle) => void
+  seed: number
+  setSeed: (seed: number | ((seed: number) => number)) => void
+  legibility: number
+  setLegibility: (n: number) => void
+  flourish: number
+  setFlourish: (n: number) => void
+  onCommit: (dataUrl: string) => void
+}
+
+function GeneratedPad({
+  text,
+  setText,
+  color,
+  style,
+  setStyle,
+  seed,
+  setSeed,
+  legibility,
+  setLegibility,
+  flourish,
+  setFlourish,
+  onCommit,
+}: GeneratedPadProps) {
+  const tGenerate = useT()
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const c = canvasRef.current
+    if (!c) return
+    const plan = generateSignaturePlan(text, {
+      seed,
+      style,
+      legibility,
+      flourish,
+      width: c.width,
+      height: c.height,
+    })
+    renderSignaturePlan(c, plan, color)
+  }, [text, seed, style, legibility, flourish, color])
+
+  function commit() {
+    if (!text.trim()) { alert(tGenerate('sm.generate.empty_alert')); return }
+    onCommit(trimCanvas(canvasRef.current!))
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">{tGenerate('sm.generate.help')}</p>
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+        <Input
+          autoFocus
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={tGenerate('sm.type.placeholder')}
+        />
+        <Button type="button" variant="outline" onClick={() => setSeed((s) => s + 1)}>
+          <RefreshCcw className="size-4" />
+          {tGenerate('sm.generate.shuffle')}
+        </Button>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <label className="block space-y-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">{tGenerate('sm.generate.style')}</span>
+          <Select value={style} onValueChange={(v) => setStyle(v as GeneratedSignatureStyle)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="flowing">{tGenerate('sm.generate.style.flowing')}</SelectItem>
+              <SelectItem value="quick">{tGenerate('sm.generate.style.quick')}</SelectItem>
+              <SelectItem value="formal">{tGenerate('sm.generate.style.formal')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="block space-y-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">{tGenerate('sm.generate.legibility')}</span>
+          <input
+            type="range"
+            min={20}
+            max={95}
+            value={Math.round(legibility * 100)}
+            onChange={(e) => setLegibility(Number(e.currentTarget.value) / 100)}
+            className="h-9 w-full accent-primary"
+          />
+        </label>
+        <label className="block space-y-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">{tGenerate('sm.generate.flourish')}</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(flourish * 100)}
+            onChange={(e) => setFlourish(Number(e.currentTarget.value) / 100)}
+            className="h-9 w-full accent-primary"
+          />
+        </label>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={500}
+        height={200}
+        aria-label={tGenerate('sm.generate.preview')}
+        className="rounded-md border bg-white"
+        style={{ width: '100%', maxWidth: 500, aspectRatio: '5 / 2', height: 'auto' }}
+      />
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={() => setText('')}>{tGenerate('sm.clear')}</Button>
+        <Button type="button" onClick={commit}>{tGenerate('sm.use')}</Button>
+      </div>
     </div>
   )
 }
