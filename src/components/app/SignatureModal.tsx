@@ -10,8 +10,7 @@ import { Label } from '@/components/ui/label'
 import { usePdfStore } from '@/store/usePdfStore'
 import { HANDWRITING_FONTS, type HandwritingFont } from '@/utils/fonts'
 import {
-  generateSignaturePlan,
-  renderSignaturePlan,
+  renderTextGuidedSignature,
   type GeneratedSignatureStyle,
 } from '@/utils/signatureGenerator'
 import { trimCanvas } from '@/utils/trimSignature'
@@ -46,8 +45,8 @@ export function SignatureModal({ open, onOpenChange }: Props) {
   const [typedFont, setTypedFont] = useState<HandwritingFont>('Caveat')
   const [generatedStyle, setGeneratedStyle] = useState<GeneratedSignatureStyle>('flowing')
   const [generatedSeed, setGeneratedSeed] = useState(1)
-  const [generatedLegibility, setGeneratedLegibility] = useState(0.58)
-  const [generatedFlourish, setGeneratedFlourish] = useState(0.7)
+  const [generatedLegibility, setGeneratedLegibility] = useState(0.84)
+  const [generatedFlourish, setGeneratedFlourish] = useState(0.38)
   const [saved, setSaved] = useState<SavedSignature[]>([])
 
   // Reset on open
@@ -60,8 +59,8 @@ export function SignatureModal({ open, onOpenChange }: Props) {
       setTypedText('')
       setGeneratedStyle('flowing')
       setGeneratedSeed((s) => s + 1)
-      setGeneratedLegibility(0.58)
-      setGeneratedFlourish(0.7)
+      setGeneratedLegibility(0.84)
+      setGeneratedFlourish(0.38)
       setSaved(loadSavedSignatures())
     })
     return () => { cancelled = true }
@@ -381,19 +380,21 @@ function GeneratedPad({
 }: GeneratedPadProps) {
   const tGenerate = useT()
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const renderRevision = useRef(0)
 
   useEffect(() => {
     const c = canvasRef.current
     if (!c) return
-    const plan = generateSignaturePlan(text, {
+    const revision = ++renderRevision.current
+    const settings = {
       seed,
       style,
       legibility,
       flourish,
       width: c.width,
       height: c.height,
-    })
-    renderSignaturePlan(c, plan, color)
+    }
+    void renderTextGuidedSignature(c, text, settings, color, () => revision === renderRevision.current)
   }, [text, seed, style, legibility, flourish, color])
 
   function commit() {

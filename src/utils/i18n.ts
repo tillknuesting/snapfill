@@ -247,7 +247,7 @@ export const baseTranslations = {
     'sm.type.help':        'Type, then pick a handwriting style.',
     'sm.type.placeholder': 'Your name',
     'sm.type.empty_alert': 'Please type your name first.',
-    'sm.generate.help':    'Type your name, then shuffle a procedural stroke signature.',
+    'sm.generate.help':    'Type your name, then shuffle a text-matched signature.',
     'sm.generate.shuffle': 'Shuffle',
     'sm.generate.style':   'Style',
     'sm.generate.style.flowing': 'Flowing',
