@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { usePdfStore } from './usePdfStore'
 import type { Annotation, TextAnnotation, SignatureAnnotation, DrawingAnnotation } from '@/types'
+import { DEFAULT_WATERMARK } from '@/utils/watermark'
+import { DEFAULT_PAGE_NUMBERS } from '@/utils/pageNumbers'
 
 const text: TextAnnotation = {
   id: 't1', type: 'text', pageIdx: 0, x: 10, y: 10, w: 100, h: 20,
@@ -28,14 +30,18 @@ beforeEach(() => {
     pendingSignature: null,
     pendingTextValue: null,
     pendingDateMs: null,
+    pendingImage: null,
     sigColor: '#0a1f3d',
     penColor: '#0a1f3d',
     penOpacity: 1,
     penWidth: 2,
     zoom: 1,
     formFieldEdits: new Map(),
+    watermark: DEFAULT_WATERMARK,
+    pageNumbers: DEFAULT_PAGE_NUMBERS,
     history: [[]],
     historyIdx: 0,
+    lang: 'en',
   })
 })
 
@@ -46,6 +52,11 @@ describe('setPdf', () => {
     s.setSelectedId('t1')
     s.setMode('select')
     s.setFormField('email', 'a@b.c')
+    s.setWatermark({ enabled: true, text: 'VOID' })
+    s.setPageNumbers({ enabled: true, startAt: 7 })
+    usePdfStore.setState({ pages: [{
+      pageIdx: 0, cssWidth: 800, cssHeight: 1000, pdfWidth: 612, pdfHeight: 792,
+    }] })
     expect(usePdfStore.getState().annotations).toHaveLength(1)
 
     const bytes = new Uint8Array([1, 2, 3])
@@ -54,9 +65,12 @@ describe('setPdf', () => {
     expect(after.pdfBytes).toBe(bytes)
     expect(after.fileName).toBe('doc.pdf')
     expect(after.annotations).toEqual([])
+    expect(after.pages).toEqual([])
     expect(after.selectedId).toBeNull()
     expect(after.mode).toBe('idle')
     expect(after.formFieldEdits.size).toBe(0)
+    expect(after.watermark).toEqual(DEFAULT_WATERMARK)
+    expect(after.pageNumbers).toEqual(DEFAULT_PAGE_NUMBERS)
   })
 })
 
@@ -353,23 +367,128 @@ describe('reorderPages', () => {
   })
 })
 
+describe('rotatePage', () => {
+  it('replaces pdfBytes, reparses pages, and keeps annotations on their pages', () => {
+    const s = usePdfStore.getState()
+    s.setPdf(new Uint8Array([1]), 'a.pdf')
+    s.addAnnotation({ ...text, id: 'p0', pageIdx: 0 })
+    usePdfStore.setState({ pages: [{
+      pageIdx: 0, cssWidth: 800, cssHeight: 1000, pdfWidth: 612, pdfHeight: 792,
+    }] })
+    const newBytes = new Uint8Array([9, 9])
+    s.rotatePage(newBytes)
+    const after = usePdfStore.getState()
+    expect(after.pdfBytes).toEqual(newBytes)
+    expect(after.pages).toEqual([])
+    expect(after.annotations).toHaveLength(1)
+    expect(after.annotations[0].pageIdx).toBe(0)
+    expect(after.historyIdx).toBe(0)
+    expect(after.history).toHaveLength(1)
+  })
+})
+
+describe('deletePage', () => {
+  it('drops annotations on the removed page and shifts later annotations down', () => {
+    const s = usePdfStore.getState()
+    s.setPdf(new Uint8Array([1]), 'a.pdf')
+    s.addAnnotation({ ...text, id: 'p0', pageIdx: 0 })
+    s.addAnnotation({ ...text, id: 'p1', pageIdx: 1 })
+    s.addAnnotation({ ...text, id: 'p2', pageIdx: 2 })
+    s.deletePage(new Uint8Array([2]), 1)
+    const after = usePdfStore.getState()
+    expect(after.annotations.map((a) => [a.id, a.pageIdx])).toEqual([
+      ['p0', 0],
+      ['p2', 1],
+    ])
+  })
+
+  it('replaces pdfBytes, clears pages, and resets history', () => {
+    const s = usePdfStore.getState()
+    s.setPdf(new Uint8Array([1]), 'a.pdf')
+    usePdfStore.setState({ pages: [{
+      pageIdx: 0, cssWidth: 800, cssHeight: 1000, pdfWidth: 612, pdfHeight: 792,
+    }] })
+    const newBytes = new Uint8Array([8, 8])
+    s.deletePage(newBytes, 0)
+    const after = usePdfStore.getState()
+    expect(after.pdfBytes).toEqual(newBytes)
+    expect(after.pages).toEqual([])
+    expect(after.historyIdx).toBe(0)
+    expect(after.history).toHaveLength(1)
+  })
+})
+
 describe('loadFromRecent', () => {
   it('replaces state with the recent record and resets history', () => {
     const s = usePdfStore.getState()
     s.addAnnotation(text)
+    usePdfStore.setState({ pages: [{
+      pageIdx: 0, cssWidth: 800, cssHeight: 1000, pdfWidth: 612, pdfHeight: 792,
+    }] })
     s.loadFromRecent(
       new Uint8Array([7, 7, 7]),
       'other.pdf',
       'rec-id',
       [sig, draw],
       [['name', 'Bob']],
+      { ...DEFAULT_WATERMARK, enabled: true, text: 'PAID' },
+      { ...DEFAULT_PAGE_NUMBERS, enabled: true, position: 'top-right', startAt: 3 },
     )
     const after = usePdfStore.getState()
     expect(after.fileName).toBe('other.pdf')
     expect(after.recentId).toBe('rec-id')
     expect(after.annotations).toEqual([sig, draw])
+    expect(after.pages).toEqual([])
     expect(after.formFieldEdits.get('name')).toBe('Bob')
+    expect(after.watermark).toMatchObject({ enabled: true, text: 'PAID' })
+    expect(after.pageNumbers).toMatchObject({ enabled: true, position: 'top-right', startAt: 3 })
     expect(after.historyIdx).toBe(0)
     expect(after.history[0]).toEqual([sig, draw])
+  })
+})
+
+describe('setWatermark', () => {
+  it('updates and clamps document-level watermark settings', () => {
+    const s = usePdfStore.getState()
+    s.setWatermark({
+      enabled: true,
+      text: 'CONFIDENTIAL',
+      fontSize: 999,
+      opacity: 2,
+      rotation: -500,
+      color: '#991b1b',
+    })
+    expect(usePdfStore.getState().watermark).toEqual({
+      enabled: true,
+      text: 'CONFIDENTIAL',
+      fontSize: 160,
+      opacity: 0.6,
+      rotation: -90,
+      color: '#991b1b',
+    })
+  })
+})
+
+describe('setPageNumbers', () => {
+  it('updates and clamps document-level page numbering settings', () => {
+    const s = usePdfStore.getState()
+    s.setPageNumbers({
+      enabled: true,
+      format: 'number',
+      position: 'top-right',
+      startAt: -100,
+      fontSize: 999,
+      color: '#1d4ed8',
+      margin: 999,
+    })
+    expect(usePdfStore.getState().pageNumbers).toEqual({
+      enabled: true,
+      format: 'number',
+      position: 'top-right',
+      startAt: 0,
+      fontSize: 48,
+      color: '#1d4ed8',
+      margin: 144,
+    })
   })
 })

@@ -3,6 +3,8 @@ import {
   addRecentFile, clearRecentFiles, formatBytes, formatRelativeTime,
   loadRecentFile, loadRecentFiles, removeRecentFile,
 } from './recentFiles'
+import { DEFAULT_WATERMARK } from './watermark'
+import { DEFAULT_PAGE_NUMBERS } from './pageNumbers'
 
 beforeEach(async () => {
   await clearRecentFiles()
@@ -81,7 +83,7 @@ describe('IndexedDB cache', () => {
     expect(Array.from(loaded!.bytes)).toEqual([1, 2, 3, 4])
   })
 
-  it('de-dupes by name + size, latest wins', async () => {
+  it('de-dupes by name + content, latest wins', async () => {
     // Pin Date.now() so each add gets a distinct, monotonically increasing
     // timestamp — `Date.now()` returns the same value for rapid sequential
     // calls otherwise.
@@ -91,7 +93,7 @@ describe('IndexedDB cache', () => {
       const bytes = new Uint8Array([1, 2, 3])
       await addRecentFile('doc.pdf', bytes)
       await addRecentFile('other.pdf', new Uint8Array([9]))
-      await addRecentFile('doc.pdf', bytes)  // re-add same → bumps timestamp
+      await addRecentFile('doc.pdf', bytes)  // re-add same content → bumps timestamp
       const meta = await loadRecentFiles()
       expect(meta).toHaveLength(2)
       expect(meta[0].name).toBe('doc.pdf')  // most recent first
@@ -99,6 +101,16 @@ describe('IndexedDB cache', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+
+  it('keeps distinct files with the same name and size separate', async () => {
+    const first = await addRecentFile('doc.pdf', new Uint8Array([1, 2, 3]))
+    const second = await addRecentFile('doc.pdf', new Uint8Array([1, 2, 4]))
+    expect(second).not.toBe(first)
+
+    const meta = await loadRecentFiles()
+    expect(meta).toHaveLength(2)
+    expect(meta.map((m) => m.name)).toEqual(['doc.pdf', 'doc.pdf'])
   })
 
   it('caps the list at 20 entries', async () => {
@@ -157,9 +169,11 @@ describe('persistence: full record + updateRecentFile', () => {
     expect(full).not.toBeNull()
     expect(full!.annotations).toEqual([])
     expect(full!.formFieldEdits).toEqual([])
+    expect(full!.watermark).toEqual(DEFAULT_WATERMARK)
+    expect(full!.pageNumbers).toEqual(DEFAULT_PAGE_NUMBERS)
   })
 
-  it('updateRecentFile patches annotations + form-field edits', async () => {
+  it('updateRecentFile patches annotations + form-field edits + watermark + page numbers', async () => {
     const { addRecentFile, updateRecentFile, loadRecentFileFull } = await import('./recentFiles')
     const id = await addRecentFile('doc.pdf', new Uint8Array([1, 2, 3]))
     await updateRecentFile(id, {
@@ -168,11 +182,15 @@ describe('persistence: full record + updateRecentFile', () => {
         data: 'hello', fontSize: 14, family: 'helvetica', color: '#000',
       }],
       formFieldEdits: [['name', 'Alice'], ['agreed', true]],
+      watermark: { ...DEFAULT_WATERMARK, enabled: true, text: 'APPROVED', opacity: 0.25 },
+      pageNumbers: { ...DEFAULT_PAGE_NUMBERS, enabled: true, position: 'top-right', startAt: 4 },
     })
     const full = await loadRecentFileFull(id)
     expect(full!.annotations).toHaveLength(1)
     expect(full!.annotations[0]).toMatchObject({ id: 'a1', data: 'hello' })
     expect(full!.formFieldEdits).toEqual([['name', 'Alice'], ['agreed', true]])
+    expect(full!.watermark).toMatchObject({ enabled: true, text: 'APPROVED', opacity: 0.25 })
+    expect(full!.pageNumbers).toMatchObject({ enabled: true, position: 'top-right', startAt: 4 })
     // Bytes are not changed
     expect(Array.from(full!.bytes)).toEqual([1, 2, 3])
   })
@@ -182,7 +200,7 @@ describe('persistence: full record + updateRecentFile', () => {
     await expect(updateRecentFile('does-not-exist', { annotations: [] })).resolves.toBeUndefined()
   })
 
-  it('addRecentFile bumps timestamp + preserves annotations on duplicate (name + size)', async () => {
+  it('addRecentFile bumps timestamp + preserves annotations on duplicate content', async () => {
     const { addRecentFile, updateRecentFile, loadRecentFileFull } = await import('./recentFiles')
     const id = await addRecentFile('doc.pdf', new Uint8Array([1, 2, 3]))
     await updateRecentFile(id, {

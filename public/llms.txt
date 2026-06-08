@@ -61,8 +61,10 @@ override via the language picker (persisted in localStorage).
 
 ## Themes
 
-Six manual themes plus "system" auto-follow: light, dark, sepia,
-high-contrast, solarized, dracula.
+Fourteen manual themes plus "system" auto-follow: light, dark,
+sepia, solarized light, gruvbox light, catppuccin latte, github
+light, high-contrast, solarized, dracula, nord, gruvbox,
+catppuccin, tokyo night.
 
 ## Bundled form fixtures
 

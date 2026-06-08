@@ -9,10 +9,9 @@ import {
 } from '@/utils/themes'
 import { cn } from '@/lib/utils'
 
-// Theme picker — popover with the seven presets (System / Light / Dark /
-// Sepia / High Contrast / Solarized / Dracula). Shows an icon that reflects
-// the *resolved* theme (Sun / Moon / Palette) so the trigger stays
-// recognisable regardless of which named theme is active.
+// Theme picker — popover with system/light/dark plus named palettes. Shows an
+// icon that reflects the *resolved* theme (Sun / Moon / Palette) so the
+// trigger stays recognisable regardless of which named theme is active.
 export function ThemeToggle() {
   const t = useT()
   const [theme, setTheme] = useState<Theme>(readStoredTheme)
@@ -32,9 +31,12 @@ export function ThemeToggle() {
   }, [theme])
 
   const resolved = resolveTheme(theme)
+  const darkNamedThemes: Theme[] = [
+    'hc', 'solarized', 'dracula', 'nord', 'gruvbox', 'catppuccin', 'tokyo',
+  ]
   const Icon =
     theme === 'system' ? Monitor :
-    resolved === 'dark' || ['hc', 'solarized', 'dracula'].includes(resolved) ? Moon :
+    resolved === 'dark' || darkNamedThemes.includes(resolved) ? Moon :
     resolved === 'sepia' ? Palette :
     Sun
 
@@ -56,7 +58,7 @@ export function ThemeToggle() {
         </TooltipTrigger>
         <TooltipContent side="bottom">{t('tb.theme')}</TooltipContent>
       </Tooltip>
-      <PopoverContent className="w-44 p-1" align="end">
+      <PopoverContent className="max-h-[min(28rem,calc(100vh-5rem))] w-48 overflow-y-auto p-1" align="end">
         <ul role="listbox" aria-label={t('tb.theme')}>
           {THEMES.map((th) => (
             <li key={th.code}>

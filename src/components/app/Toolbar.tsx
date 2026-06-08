@@ -1,7 +1,9 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import {
   AlignLeft, ArrowDownToLine, ArrowUpToLine, Calendar, ChevronDown, Download, Eraser, FileUp, Files,
-  Image as ImageIcon, Loader2, MousePointer2, Pencil, PenLine, TextCursorInput, Type, Undo2, User, ZoomIn, ZoomOut,
+  Hash, HelpCircle, Image as ImageIcon, ListOrdered, Loader2, MoreHorizontal, MousePointer2, Pencil, PenLine,
+  RectangleHorizontal, Stamp, TextCursorInput, Type, Undo2, User, ZoomIn, ZoomOut,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,7 +22,7 @@ import { formatDate } from '@/utils/dateFormats'
 import {
   fileToDataUrl, probeImageDimensions, validateImageFile,
 } from '@/utils/imageValidation'
-import type { FontFamily, TextAnnotation } from '@/types'
+import type { CompressionLevel, FontFamily } from '@/types'
 import { cn } from '@/lib/utils'
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -86,7 +88,10 @@ interface ToolbarProps {
   onMergePdf: (file: File, where: 'start' | 'end') => Promise<void>
   onOpenSignature: () => void
   onOpenProfile: () => void
-  onDownload: (opts?: { compress?: boolean; quality?: 'small' | 'balanced' | 'sharp' }) => void
+  onOpenHelp: () => void
+  onOpenPages: () => void
+  onDownload: (opts?: { compress?: boolean; level?: CompressionLevel }) => void
+  hasMultiplePages: boolean
   textFamily: FontFamily
   setTextFamily: (id: FontFamily) => void
   textSize: number
@@ -99,8 +104,75 @@ interface ToolbarProps {
   profileDialogOpen: boolean
 }
 
+function useIsMobileToolbar() {
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false
+    return window.matchMedia('(max-width: 639px)').matches
+  })
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mql = window.matchMedia('(max-width: 639px)')
+    const update = () => setIsMobile(mql.matches)
+    update()
+    mql.addEventListener?.('change', update)
+    return () => mql.removeEventListener?.('change', update)
+  }, [])
+  return isMobile
+}
+
+function MobileActionButton({
+  icon, label, active, disabled, primary, onClick,
+}: {
+  icon: ReactNode
+  label: string
+  active?: boolean
+  disabled?: boolean
+  primary?: boolean
+  onClick?: () => void
+}) {
+  return (
+    <Button
+      type="button"
+      variant={active || primary ? 'default' : 'ghost'}
+      disabled={disabled}
+      aria-label={label}
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        'h-14 min-w-0 flex-1 flex-col gap-0.5 rounded-md px-1 text-[10px] leading-none',
+        active && 'shadow-md ring-2 ring-primary/30',
+      )}
+    >
+      {icon}
+      <span className="max-w-full truncate">{label}</span>
+    </Button>
+  )
+}
+
+function MobileMenuButton({
+  icon, label, disabled, onClick,
+}: {
+  icon: ReactNode
+  label: string
+  disabled?: boolean
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex min-h-10 w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+    >
+      {icon}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
+  )
+}
+
 export function Toolbar(props: ToolbarProps) {
   const t = useT()
+  const isMobile = useIsMobileToolbar()
   const fileRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const mergeInputRef = useRef<HTMLInputElement>(null)
@@ -113,14 +185,41 @@ export function Toolbar(props: ToolbarProps) {
   // Download split-button state. compressOnDownload persists for the
   // session — the user picks once and subsequent downloads honour it.
   const [downloadOptsOpen, setDownloadOptsOpen] = useState(false)
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const [compressOnDownload, setCompressOnDownload] = useState(false)
-  const [compressQuality, setCompressQuality] = useState<'small' | 'balanced' | 'sharp'>('balanced')
-  const {
-    pdfBytes, mode, setMode, undoAnnotation, clearAnnotations,
-    selectedId, annotations, updateAnnotation, pushHistory,
-    zoom, setZoom, setPendingTextValue, setPendingDateMs, setPendingImage,
-    penColor, penOpacity, penWidth, setPenColor, setPenOpacity, setPenWidth,
-  } = usePdfStore()
+  const [compressLevel, setCompressLevel] = useState<CompressionLevel>('mid')
+  const pdfBytes = usePdfStore((s) => s.pdfBytes)
+  const mode = usePdfStore((s) => s.mode)
+  const setMode = usePdfStore((s) => s.setMode)
+  const undoAnnotation = usePdfStore((s) => s.undoAnnotation)
+  const clearAnnotations = usePdfStore((s) => s.clearAnnotations)
+  const hasAnnotations = usePdfStore((s) => s.annotations.length > 0)
+  const selectedText = usePdfStore(useShallow((s) => {
+    const selected = s.selectedId ? s.annotations.find((a) => a.id === s.selectedId) : null
+    return {
+      id: selected?.type === 'text' ? selected.id : null,
+      family: selected?.type === 'text' ? selected.family : null,
+      fontSize: selected?.type === 'text' ? selected.fontSize : null,
+      color: selected?.type === 'text' ? selected.color : null,
+    }
+  }))
+  const updateAnnotation = usePdfStore((s) => s.updateAnnotation)
+  const pushHistory = usePdfStore((s) => s.pushHistory)
+  const zoom = usePdfStore((s) => s.zoom)
+  const setZoom = usePdfStore((s) => s.setZoom)
+  const setPendingTextValue = usePdfStore((s) => s.setPendingTextValue)
+  const setPendingDateMs = usePdfStore((s) => s.setPendingDateMs)
+  const setPendingImage = usePdfStore((s) => s.setPendingImage)
+  const penColor = usePdfStore((s) => s.penColor)
+  const penOpacity = usePdfStore((s) => s.penOpacity)
+  const penWidth = usePdfStore((s) => s.penWidth)
+  const setPenColor = usePdfStore((s) => s.setPenColor)
+  const setPenOpacity = usePdfStore((s) => s.setPenOpacity)
+  const setPenWidth = usePdfStore((s) => s.setPenWidth)
+  const watermark = usePdfStore((s) => s.watermark)
+  const setWatermark = usePdfStore((s) => s.setWatermark)
+  const pageNumbers = usePdfStore((s) => s.pageNumbers)
+  const setPageNumbers = usePdfStore((s) => s.setPageNumbers)
 
   async function handleImagePicker(file: File) {
     const v = validateImageFile(file)
@@ -150,20 +249,18 @@ export function Toolbar(props: ToolbarProps) {
   }
 
   const hasPdf = !!pdfBytes
-  const selected = annotations.find((a) => a.id === selectedId)
-  const selectedText = selected?.type === 'text' ? selected as TextAnnotation : null
   // Show the text-styling controls only when they're contextually useful.
-  const showTextControls = hasPdf && (mode === 'text' || !!selectedText)
+  const showTextControls = hasPdf && (mode === 'text' || selectedText.id !== null)
 
-  const familyValue = selectedText ? normalizeFamily(selectedText.family) : props.textFamily
-  const sizeValue = selectedText ? selectedText.fontSize : props.textSize
+  const familyValue = selectedText.family ? normalizeFamily(selectedText.family) : props.textFamily
+  const sizeValue = selectedText.fontSize ?? props.textSize
   // Show the swatch on the toolbar trigger using the selected annotation's
   // colour when one is selected (so the user sees what they're editing),
   // otherwise the global default that next-typed text will use.
-  const colorValue = selectedText ? selectedText.color : props.textColor
+  const colorValue = selectedText.color ?? props.textColor
 
   function handleFamilyChange(id: FontFamily) {
-    if (selectedText) {
+    if (selectedText.id) {
       updateAnnotation(selectedText.id, { family: id })
       pushHistory()
     }
@@ -171,29 +268,679 @@ export function Toolbar(props: ToolbarProps) {
   }
   function handleSizeChange(n: number) {
     const clamped = Math.max(6, Math.min(72, n))
-    if (selectedText) {
+    if (selectedText.id) {
       updateAnnotation(selectedText.id, { fontSize: clamped })
       pushHistory()
     }
     else props.setTextSize(clamped)
   }
   function handleColorChange(c: string) {
-    if (selectedText) {
+    if (selectedText.id) {
       updateAnnotation(selectedText.id, { color: c })
       pushHistory()
     }
     else props.setTextColor(c)
   }
 
+  function renderWatermarkControls() {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 rounded border border-border/70 bg-muted/20 p-2 text-sm font-medium">
+          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={watermark.enabled}
+              disabled={!hasPdf}
+              onChange={(e) => setWatermark({ enabled: e.target.checked })}
+              className="size-4 shrink-0 cursor-pointer accent-primary"
+            />
+            <span>{t('wm.enabled')}</span>
+          </label>
+          <span
+            aria-hidden="true"
+            className={cn(
+              'shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold leading-none',
+              watermark.enabled
+                ? 'border-primary/30 bg-primary/10 text-primary'
+                : 'border-border bg-background text-muted-foreground',
+            )}
+          >
+            {watermark.enabled ? t('wm.status_on') : t('wm.status_off')}
+          </span>
+        </div>
+        <label className="block space-y-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">{t('wm.text')}</span>
+          <Input
+            value={watermark.text}
+            disabled={!hasPdf}
+            maxLength={80}
+            placeholder={t('wm.placeholder')}
+            onChange={(e) => setWatermark({ text: e.currentTarget.value })}
+            onFocus={(e) => e.currentTarget.select()}
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block space-y-1.5 text-sm">
+            <span className="text-xs font-medium text-muted-foreground">{t('wm.size')}</span>
+            <Input
+              type="number"
+              min={12}
+              max={160}
+              value={watermark.fontSize}
+              disabled={!hasPdf}
+              onChange={(e) => setWatermark({ fontSize: Number(e.currentTarget.value) || 72 })}
+              className="font-mono"
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm">
+            <span className="text-xs font-medium text-muted-foreground">{t('wm.color')}</span>
+            <div className="flex h-9 items-center gap-1.5">
+              {['#0a1f3d', '#64748b', '#991b1b', '#1d4ed8'].map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  disabled={!hasPdf}
+                  aria-label={`${t('wm.color')} ${c}`}
+                  onClick={() => setWatermark({ color: c })}
+                  className={cn(
+                    'size-6 rounded-full border-2 disabled:opacity-50',
+                    watermark.color === c ? 'border-primary ring-2 ring-primary/20' : 'border-border',
+                  )}
+                  style={{ background: c }}
+                />
+              ))}
+            </div>
+          </label>
+        </div>
+        <label className="block space-y-1.5 text-sm">
+          <span className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+            <span>{t('wm.opacity')}</span>
+            <span className="font-mono tabular-nums">{Math.round(watermark.opacity * 100)}%</span>
+          </span>
+          <input
+            type="range"
+            min={5}
+            max={60}
+            value={Math.round(watermark.opacity * 100)}
+            disabled={!hasPdf}
+            onChange={(e) => setWatermark({ opacity: Number(e.currentTarget.value) / 100 })}
+            className="w-full accent-primary"
+          />
+        </label>
+        <label className="block space-y-1.5 text-sm">
+          <span className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+            <span>{t('wm.rotation')}</span>
+            <span className="font-mono tabular-nums">{watermark.rotation}°</span>
+          </span>
+          <input
+            type="range"
+            min={-90}
+            max={90}
+            step={5}
+            value={watermark.rotation}
+            disabled={!hasPdf}
+            onChange={(e) => setWatermark({ rotation: Number(e.currentTarget.value) })}
+            className="w-full accent-primary"
+          />
+        </label>
+      </div>
+    )
+  }
+
+  function renderPageNumberControls() {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 rounded border border-border/70 bg-muted/20 p-2 text-sm font-medium">
+          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={pageNumbers.enabled}
+              disabled={!hasPdf}
+              onChange={(e) => setPageNumbers({ enabled: e.target.checked })}
+              className="size-4 shrink-0 cursor-pointer accent-primary"
+            />
+            <span>Insert page numbers</span>
+          </label>
+          <span
+            aria-hidden="true"
+            className={cn(
+              'shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold leading-none',
+              pageNumbers.enabled
+                ? 'border-primary/30 bg-primary/10 text-primary'
+                : 'border-border bg-background text-muted-foreground',
+            )}
+          >
+            {pageNumbers.enabled ? 'Added' : 'Not added'}
+          </span>
+        </div>
+        <label className="block space-y-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Format</span>
+          <Select
+            value={pageNumbers.format}
+            onValueChange={(v) => setPageNumbers({ format: v as typeof pageNumbers.format })}
+          >
+            <SelectTrigger className="w-full" size="sm" disabled={!hasPdf} aria-label="Page number format">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="page-of-total">Page 1 of 5</SelectItem>
+              <SelectItem value="page">Page 1</SelectItem>
+              <SelectItem value="number">1</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="block space-y-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Position</span>
+          <Select
+            value={pageNumbers.position}
+            onValueChange={(v) => setPageNumbers({ position: v as typeof pageNumbers.position })}
+          >
+            <SelectTrigger className="w-full" size="sm" disabled={!hasPdf} aria-label="Page number position">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="bottom-center">Bottom center</SelectItem>
+              <SelectItem value="bottom-right">Bottom right</SelectItem>
+              <SelectItem value="bottom-left">Bottom left</SelectItem>
+              <SelectItem value="top-center">Top center</SelectItem>
+              <SelectItem value="top-right">Top right</SelectItem>
+              <SelectItem value="top-left">Top left</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="block space-y-1.5 text-sm">
+            <span className="text-xs font-medium text-muted-foreground">Start</span>
+            <Input
+              type="number"
+              min={0}
+              max={9999}
+              value={pageNumbers.startAt}
+              disabled={!hasPdf}
+              onChange={(e) => setPageNumbers({ startAt: Number(e.currentTarget.value) || 0 })}
+              className="font-mono"
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm">
+            <span className="text-xs font-medium text-muted-foreground">Size</span>
+            <Input
+              type="number"
+              min={6}
+              max={48}
+              value={pageNumbers.fontSize}
+              disabled={!hasPdf}
+              onChange={(e) => setPageNumbers({ fontSize: Number(e.currentTarget.value) || 10 })}
+              className="font-mono"
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm">
+            <span className="text-xs font-medium text-muted-foreground">Margin</span>
+            <Input
+              type="number"
+              min={8}
+              max={144}
+              value={pageNumbers.margin}
+              disabled={!hasPdf}
+              onChange={(e) => setPageNumbers({ margin: Number(e.currentTarget.value) || 28 })}
+              className="font-mono"
+            />
+          </label>
+        </div>
+        <label className="block space-y-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Color</span>
+          <div className="flex h-9 items-center gap-1.5">
+            {['#0a1f3d', '#64748b', '#111827', '#1d4ed8'].map((c) => (
+              <button
+                key={c}
+                type="button"
+                disabled={!hasPdf}
+                aria-label={`Page number color ${c}`}
+                onClick={() => setPageNumbers({ color: c })}
+                className={cn(
+                  'size-6 rounded-full border-2 disabled:opacity-50',
+                  pageNumbers.color === c ? 'border-primary ring-2 ring-primary/20' : 'border-border',
+                )}
+                style={{ background: c }}
+              />
+            ))}
+          </div>
+        </label>
+      </div>
+    )
+  }
+
+  function beginMerge(where: 'start' | 'end') {
+    setMobileMoreOpen(false)
+    setMergePopoverOpen(false)
+    setMergeWhere(where)
+    mergeInputRef.current?.click()
+  }
+
+  function chooseImage() {
+    setMobileMoreOpen(false)
+    if (mode === 'image') { setMode('idle'); return }
+    imageInputRef.current?.click()
+  }
+
+  function insertDate() {
+    const now = Date.now()
+    setPendingTextValue(formatDate(now, undefined))
+    setPendingDateMs(now)
+    setMode('text')
+  }
+
+  function renderTextControls(mobile: boolean) {
+    if (!showTextControls) return null
+    return (
+      <div className={cn(
+        mobile
+          ? 'fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 border-t bg-background/95 px-2 py-2 shadow-lg backdrop-blur sm:hidden'
+          : 'contents',
+      )}>
+        <div className={cn(mobile ? 'flex items-center gap-2 overflow-x-auto [scrollbar-width:none]' : 'contents')}>
+          {!mobile && <Separator orientation="vertical" className="mx-1 h-6 shrink-0" />}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Select value={familyValue} onValueChange={(v: string) => handleFamilyChange(v as FontFamily)}>
+                  <SelectTrigger size="sm" className={cn('shrink-0', mobile ? 'w-[132px]' : 'w-[140px]')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FAMILY_OPTIONS.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('tb.font_family')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Input
+                type="number"
+                min={6}
+                max={72}
+                value={sizeValue}
+                onChange={(e) => handleSizeChange(parseInt(e.currentTarget.value, 10) || 14)}
+                className={cn('h-10 w-16 shrink-0 font-mono sm:h-8', mobile && 'h-9 w-14')}
+                aria-label={t('tb.font_size')}
+              />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('tb.font_size')}</TooltipContent>
+          </Tooltip>
+          <Popover>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={t('tb.text_color')}
+                    className={cn('h-10 shrink-0 sm:h-8', mobile && 'h-9 w-9 px-0')}
+                  >
+                    <span
+                      className="size-3.5 rounded-full border"
+                      style={{ background: colorValue }}
+                    />
+                  </Button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('tb.text_color')}</TooltipContent>
+            </Tooltip>
+            <PopoverContent className="w-auto p-2">
+              <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t('tb.text_color')}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {PEN_COLORS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => handleColorChange(c.value)}
+                    title={c.label}
+                    aria-label={c.label}
+                    className={cn(
+                      'size-6 rounded-full border-2',
+                      colorValue === c.value
+                        ? 'border-primary ring-2 ring-primary/20'
+                        : 'border-border',
+                    )}
+                    style={{ background: c.value }}
+                  />
+                ))}
+                <label
+                  title={t('tb.custom_color')}
+                  className={cn(
+                    'relative size-6 cursor-pointer rounded-full border-2',
+                    PEN_COLORS.some((c) => c.value === colorValue)
+                      ? 'border-border'
+                      : 'border-primary ring-2 ring-primary/20',
+                  )}
+                  style={{
+                    background: 'conic-gradient(from 0deg, #f43f5e, #f59e0b, #84cc16, #06b6d4, #6366f1, #d946ef, #f43f5e)',
+                  }}
+                >
+                  <input
+                    type="color"
+                    value={colorValue}
+                    onChange={(e) => handleColorChange(e.target.value)}
+                    aria-label={t('tb.custom_color')}
+                    className="absolute inset-0 size-full cursor-pointer opacity-0"
+                  />
+                </label>
+              </div>
+            </PopoverContent>
+          </Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Toggle
+                size="sm"
+                pressed={props.snapEnabled}
+                onPressedChange={props.setSnapEnabled}
+                aria-label={props.snapEnabled ? t('tb.snap_on') : t('tb.snap_off')}
+                aria-pressed={props.snapEnabled}
+                className={cn(
+                  'h-10 shrink-0 sm:h-8',
+                  mobile && 'h-9 px-2',
+                  props.snapEnabled
+                    ? 'bg-primary text-primary-foreground shadow-md ring-2 ring-primary/30 hover:bg-primary/90 hover:text-primary-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground'
+                    : 'border border-dashed border-muted-foreground/40 text-muted-foreground',
+                )}
+              >
+                <AlignLeft
+                  className={cn('size-4', props.snapEnabled && 'size-5')}
+                  strokeWidth={props.snapEnabled ? 2.5 : 2}
+                />
+                <span>{t('tb.snap')}</span>
+              </Toggle>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('tb.snap_to_lines')}</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    )
+  }
+
+  function renderMobileToolbar() {
+    return (
+      <>
+        {renderTextControls(true)}
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 shadow-lg backdrop-blur sm:hidden">
+          <div className="grid grid-cols-6 gap-1">
+            <Popover open={mobileMoreOpen} onOpenChange={setMobileMoreOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  aria-label={t('tb.more')}
+                  className="h-14 min-w-0 flex-col gap-0.5 rounded-md px-1 text-[10px] leading-none"
+                >
+                  <MoreHorizontal className="size-5" />
+                  <span className="max-w-full truncate">{t('tb.more')}</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="mb-2 max-h-[70vh] w-[min(22rem,calc(100vw-1rem))] overflow-y-auto p-2" align="start" side="top">
+                <div className="grid gap-1">
+                  <MobileMenuButton
+                    icon={<ListOrdered className="size-4 shrink-0" />}
+                    label={t('tb.pages')}
+                    disabled={!hasPdf || !props.hasMultiplePages}
+                    onClick={() => { setMobileMoreOpen(false); props.onOpenPages() }}
+                  />
+                  <Separator className="my-1" />
+                  <MobileMenuButton
+                    icon={<TextCursorInput className="size-4 shrink-0" />}
+                    label={t('tb.edit_text')}
+                    disabled={!hasPdf}
+                    onClick={() => { setMobileMoreOpen(false); setMode(mode === 'edit' ? 'idle' : 'edit') }}
+                  />
+                  <MobileMenuButton
+                    icon={<RectangleHorizontal className="size-4 shrink-0" />}
+                    label={t('tb.redact')}
+                    disabled={!hasPdf}
+                    onClick={() => { setMobileMoreOpen(false); setMode(mode === 'redact' ? 'idle' : 'redact') }}
+                  />
+                  <MobileMenuButton
+                    icon={<Calendar className="size-4 shrink-0" />}
+                    label={t('tb.insert_date')}
+                    disabled={!hasPdf}
+                    onClick={() => { setMobileMoreOpen(false); insertDate() }}
+                  />
+                  <MobileMenuButton
+                    icon={<ImageIcon className="size-4 shrink-0" />}
+                    label={t('tb.add_image')}
+                    disabled={!hasPdf}
+                    onClick={chooseImage}
+                  />
+                  <div className="rounded px-2 py-2">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                      <Stamp className="size-4 shrink-0" />
+                      <span>{t('tb.watermark')}</span>
+                    </div>
+                    {renderWatermarkControls()}
+                  </div>
+                  <div className="rounded px-2 py-2">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                      <Hash className="size-4 shrink-0" />
+                      <span>Page numbers</span>
+                    </div>
+                    {renderPageNumberControls()}
+                  </div>
+                  <MobileMenuButton
+                    icon={<Pencil className="size-4 shrink-0" />}
+                    label={t('tb.draw')}
+                    disabled={!hasPdf}
+                    onClick={() => { setMobileMoreOpen(false); setMode(mode === 'draw' ? 'idle' : 'draw') }}
+                  />
+                  <MobileMenuButton
+                    icon={<User className="size-4 shrink-0" />}
+                    label={t('tb.profile')}
+                    onClick={() => { setMobileMoreOpen(false); props.onOpenProfile() }}
+                  />
+                  <Separator className="my-1" />
+                  <MobileMenuButton
+                    icon={<ArrowUpToLine className="size-4 shrink-0" />}
+                    label={t('tb.merge_at_start')}
+                    disabled={!hasPdf || merging}
+                    onClick={() => beginMerge('start')}
+                  />
+                  <MobileMenuButton
+                    icon={<ArrowDownToLine className="size-4 shrink-0" />}
+                    label={t('tb.merge_at_end')}
+                    disabled={!hasPdf || merging}
+                    onClick={() => beginMerge('end')}
+                  />
+                  <Separator className="my-1" />
+                  <MobileMenuButton
+                    icon={<Undo2 className="size-4 shrink-0" />}
+                    label={t('tb.undo')}
+                    disabled={!hasPdf || !hasAnnotations}
+                    onClick={() => { setMobileMoreOpen(false); undoAnnotation() }}
+                  />
+                  <MobileMenuButton
+                    icon={<Eraser className="size-4 shrink-0" />}
+                    label={t('tb.clear_all')}
+                    disabled={!hasPdf || !hasAnnotations}
+                    onClick={() => {
+                      setMobileMoreOpen(false)
+                      if (confirm('Remove all annotations?')) clearAnnotations()
+                    }}
+                  />
+                  <Separator className="my-1" />
+                  <div className="flex items-center justify-between gap-2 rounded px-2 py-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!hasPdf || zoom <= 0.25}
+                      onClick={() => setZoom(zoom - 0.25)}
+                      aria-label={t('tb.zoom_out')}
+                    >
+                      <ZoomOut className="size-4" />
+                    </Button>
+                    <button
+                      type="button"
+                      disabled={!hasPdf}
+                      onClick={() => setZoom(1)}
+                      className="min-w-12 rounded px-2 font-mono text-xs tabular-nums text-muted-foreground hover:text-foreground disabled:opacity-50"
+                    >
+                      {Math.round(zoom * 100)}%
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!hasPdf || zoom >= 4}
+                      onClick={() => setZoom(zoom + 0.25)}
+                      aria-label={t('tb.zoom_in')}
+                    >
+                      <ZoomIn className="size-4" />
+                    </Button>
+                  </div>
+                  <label className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 text-sm hover:bg-accent">
+                    <input
+                      type="checkbox"
+                      checked={compressOnDownload}
+                      onChange={(e) => setCompressOnDownload(e.target.checked)}
+                      className="mt-1 size-4 shrink-0 cursor-pointer accent-primary"
+                    />
+                    <span>
+                      <span className="font-medium">{t('tb.compress_pdf')}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {t('tb.compress_hint')}
+                      </span>
+                    </span>
+                  </label>
+                  <Select
+                    value={compressLevel}
+                    onValueChange={(v) => setCompressLevel(v as CompressionLevel)}
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      className="w-full"
+                      disabled={!compressOnDownload}
+                      aria-label={t('tb.compress_level')}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">{t('tb.compress_low')}</SelectItem>
+                      <SelectItem value="mid">{t('tb.compress_mid')}</SelectItem>
+                      <SelectItem value="high">{t('tb.compress_high')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Separator className="my-1" />
+                  <div className="flex items-center justify-between gap-2 rounded px-2 py-1.5">
+                    <LanguagePicker />
+                    <ThemeToggle />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={t('tb.help')}
+                      onClick={() => { setMobileMoreOpen(false); props.onOpenHelp() }}
+                    >
+                      <HelpCircle className="size-4" />
+                      <span className="ms-1">{t('tb.help')}</span>
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <MobileActionButton
+              icon={<FileUp className="size-5" />}
+              label={t('tb.open_short')}
+              primary
+              onClick={() => fileRef.current?.click()}
+            />
+            <MobileActionButton
+              icon={<Type className="size-5" />}
+              label={t('tb.text_short')}
+              active={mode === 'text'}
+              disabled={!hasPdf}
+              onClick={() => setMode(mode === 'text' ? 'idle' : 'text')}
+            />
+            <MobileActionButton
+              icon={<MousePointer2 className="size-5" />}
+              label={t('tb.select')}
+              active={mode === 'select'}
+              disabled={!hasPdf}
+              onClick={() => setMode(mode === 'select' ? 'idle' : 'select')}
+            />
+            <MobileActionButton
+              icon={<PenLine className="size-5" />}
+              label={t('tb.sign_short')}
+              active={mode === 'signature' || props.sigModalOpen}
+              disabled={!hasPdf}
+              onClick={() => mode === 'signature' ? setMode('idle') : props.onOpenSignature()}
+            />
+            <MobileActionButton
+              icon={<Download className="size-5" />}
+              label={t('tb.download_short')}
+              primary
+              disabled={!hasPdf}
+              onClick={() => props.onDownload({ compress: compressOnDownload, level: compressLevel })}
+            />
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  if (isMobile) {
+    return (
+      <>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/pdf"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) props.onOpenFile(f)
+            e.currentTarget.value = ''
+          }}
+        />
+        <input
+          ref={mergeInputRef}
+          type="file"
+          accept="application/pdf"
+          className="hidden"
+          onChange={async (e) => {
+            const f = e.target.files?.[0]
+            e.currentTarget.value = ''
+            if (!f || !mergeWhere) return
+            setMerging(true)
+            try {
+              await props.onMergePdf(f, mergeWhere)
+            } finally {
+              setMerging(false)
+              setMergeWhere(null)
+            }
+          }}
+        />
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) void handleImagePicker(f)
+            e.currentTarget.value = ''
+          }}
+        />
+        {renderMobileToolbar()}
+      </>
+    )
+  }
+
   return (
     <header
       className={cn(
         'frosted flex items-center gap-1.5 border-b py-2',
-        // Mobile: single row that scrolls horizontally — toolbar has ~22
-        // items so wrapping produced 3+ rows in portrait, eating canvas space.
+        // This branch only renders on ≥sm; phones use the fixed bottom
+        // toolbar above so primary actions are always visible.
         'overflow-x-auto px-3 [scrollbar-width:thin]',
-        // ≥sm: revert to the wrapping layout that pushes Zoom/Theme/Download
-        // to the right via the flex-1 spacer below.
         'sm:flex-wrap sm:overflow-x-visible',
       )}
     >
@@ -302,6 +1049,14 @@ export function Toolbar(props: ToolbarProps) {
         onClick={() => setMode(mode === 'edit' ? 'idle' : 'edit')}
       />
       <ToolbarBtn
+        icon={<RectangleHorizontal className={cn('size-4', mode === 'redact' && 'size-5')} strokeWidth={mode === 'redact' ? 2.5 : 2} />}
+        label={t('tb.redact')}
+        shortcut="R"
+        active={mode === 'redact'}
+        disabled={!hasPdf}
+        onClick={() => setMode(mode === 'redact' ? 'idle' : 'redact')}
+      />
+      <ToolbarBtn
         icon={<PenLine
           className={cn('size-4', (mode === 'signature' || props.sigModalOpen) && 'size-5')}
           strokeWidth={(mode === 'signature' || props.sigModalOpen) ? 2.5 : 2}
@@ -333,6 +1088,56 @@ export function Toolbar(props: ToolbarProps) {
           imageInputRef.current?.click()
         }}
       />
+      <Popover>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button
+                variant={watermark.enabled ? 'default' : 'ghost'}
+                size="sm"
+                disabled={!hasPdf}
+                aria-label={t('tb.watermark')}
+                aria-pressed={watermark.enabled}
+                className={cn(
+                  'h-10 shrink-0 sm:h-8',
+                  watermark.enabled && 'shadow-md ring-2 ring-primary/30',
+                )}
+              >
+                <Stamp className={cn('size-4', watermark.enabled && 'size-5')} />
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('tb.watermark')}</TooltipContent>
+        </Tooltip>
+        <PopoverContent className="w-72 p-3" align="start">
+          {renderWatermarkControls()}
+        </PopoverContent>
+      </Popover>
+      <Popover>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button
+                variant={pageNumbers.enabled ? 'default' : 'ghost'}
+                size="sm"
+                disabled={!hasPdf}
+                aria-label="Page numbers"
+                aria-pressed={pageNumbers.enabled}
+                className={cn(
+                  'h-10 shrink-0 sm:h-8',
+                  pageNumbers.enabled && 'shadow-md ring-2 ring-primary/30',
+                )}
+              >
+                <Hash className={cn('size-4', pageNumbers.enabled && 'size-5')} />
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Page numbers</TooltipContent>
+        </Tooltip>
+        <PopoverContent className="w-72 p-3" align="start">
+          {renderPageNumberControls()}
+        </PopoverContent>
+      </Popover>
       <ToolbarBtn
         icon={<Pencil className={cn('size-4', mode === 'draw' && 'size-5')} strokeWidth={mode === 'draw' ? 2.5 : 2} />}
         label={t('tb.draw')}
@@ -403,138 +1208,7 @@ export function Toolbar(props: ToolbarProps) {
         onClick={props.onOpenProfile}
       />
 
-      {/* Text-style cluster — only visible when relevant */}
-      {showTextControls && (
-        <>
-          <Separator orientation="vertical" className="mx-1 h-6 shrink-0" />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <Select value={familyValue} onValueChange={(v: string) => handleFamilyChange(v as FontFamily)}>
-                  <SelectTrigger size="sm" className="w-[140px] shrink-0">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FAMILY_OPTIONS.map((o) => (
-                      <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{t('tb.font_family')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Input
-                type="number"
-                min={6}
-                max={72}
-                value={sizeValue}
-                onChange={(e) => handleSizeChange(parseInt(e.currentTarget.value, 10) || 14)}
-                className="h-10 w-16 shrink-0 font-mono sm:h-8"
-                aria-label={t('tb.font_size')}
-              />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{t('tb.font_size')}</TooltipContent>
-          </Tooltip>
-          {/* Text colour picker — same trigger pattern as the pen settings.
-              When a text annotation is selected, the swatch reflects that
-              annotation's colour and changes apply via updateAnnotation;
-              otherwise it sets the default colour for the next typed run. */}
-          <Popover>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={t('tb.text_color')}
-                    className="h-10 shrink-0 sm:h-8"
-                  >
-                    <span
-                      className="size-3.5 rounded-full border"
-                      style={{ background: colorValue }}
-                    />
-                  </Button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t('tb.text_color')}</TooltipContent>
-            </Tooltip>
-            <PopoverContent className="w-auto p-2">
-              <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {t('tb.text_color')}
-              </div>
-              <div className="flex items-center gap-1.5">
-                {PEN_COLORS.map((c) => (
-                  <button
-                    key={c.value}
-                    type="button"
-                    onClick={() => handleColorChange(c.value)}
-                    title={c.label}
-                    aria-label={c.label}
-                    className={cn(
-                      'size-6 rounded-full border-2',
-                      colorValue === c.value
-                        ? 'border-primary ring-2 ring-primary/20'
-                        : 'border-border',
-                    )}
-                    style={{ background: c.value }}
-                  />
-                ))}
-                {/* Custom-colour swatch — opens the OS native colour picker
-                    via a hidden <input type="color"> overlaid on a rainbow
-                    gradient circle. The current colour ring highlights this
-                    swatch when the value isn't one of the presets. */}
-                <label
-                  title={t('tb.custom_color')}
-                  className={cn(
-                    'relative size-6 cursor-pointer rounded-full border-2',
-                    PEN_COLORS.some((c) => c.value === colorValue)
-                      ? 'border-border'
-                      : 'border-primary ring-2 ring-primary/20',
-                  )}
-                  style={{
-                    background: 'conic-gradient(from 0deg, #f43f5e, #f59e0b, #84cc16, #06b6d4, #6366f1, #d946ef, #f43f5e)',
-                  }}
-                >
-                  <input
-                    type="color"
-                    value={colorValue}
-                    onChange={(e) => handleColorChange(e.target.value)}
-                    aria-label={t('tb.custom_color')}
-                    className="absolute inset-0 size-full cursor-pointer opacity-0"
-                  />
-                </label>
-              </div>
-            </PopoverContent>
-          </Popover>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Toggle
-                size="sm"
-                pressed={props.snapEnabled}
-                onPressedChange={props.setSnapEnabled}
-                aria-label={props.snapEnabled ? t('tb.snap_on') : t('tb.snap_off')}
-                aria-pressed={props.snapEnabled}
-                className={cn(
-                  'h-10 shrink-0 sm:h-8',
-                  props.snapEnabled
-                    ? 'bg-primary text-primary-foreground shadow-md ring-2 ring-primary/30 hover:bg-primary/90 hover:text-primary-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground'
-                    : 'border border-dashed border-muted-foreground/40 text-muted-foreground',
-                )}
-              >
-                <AlignLeft
-                  className={cn('size-4', props.snapEnabled && 'size-5')}
-                  strokeWidth={props.snapEnabled ? 2.5 : 2}
-                />
-                {props.snapEnabled && <span>{t('tb.snap')}</span>}
-              </Toggle>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{t('tb.snap_to_lines')}</TooltipContent>
-          </Tooltip>
-        </>
-      )}
+      {renderTextControls(false)}
 
       <Separator orientation="vertical" className="mx-1 h-6 shrink-0" />
 
@@ -543,15 +1217,15 @@ export function Toolbar(props: ToolbarProps) {
         icon={<Undo2 className="size-4" />}
         label={t('tb.undo')}
         shortcut={`${cmd}+Z`}
-        disabled={!hasPdf || annotations.length === 0}
+        disabled={!hasPdf || !hasAnnotations}
         onClick={undoAnnotation}
       />
       <ToolbarBtn
         icon={<Eraser className="size-4" />}
         label={t('tb.clear_all')}
-        disabled={!hasPdf || annotations.length === 0}
+        disabled={!hasPdf || !hasAnnotations}
         onClick={() => {
-          if (confirm('Remove all added text and signatures?')) clearAnnotations()
+          if (confirm('Remove all annotations?')) clearAnnotations()
         }}
       />
 
@@ -610,6 +1284,20 @@ export function Toolbar(props: ToolbarProps) {
 
       <LanguagePicker />
       <ThemeToggle />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={t('tb.help')}
+            onClick={props.onOpenHelp}
+            className="h-10 shrink-0 sm:h-8"
+          >
+            <HelpCircle className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{t('tb.help')}</TooltipContent>
+      </Tooltip>
 
       {/* Download split-button: clicking the main label downloads with
           current settings; the chevron opens a popover with the "Make
@@ -621,7 +1309,7 @@ export function Toolbar(props: ToolbarProps) {
           variant="default"
           size="sm"
           disabled={!hasPdf}
-          onClick={() => props.onDownload({ compress: compressOnDownload, quality: compressQuality })}
+          onClick={() => props.onDownload({ compress: compressOnDownload, level: compressLevel })}
           aria-label={t('tb.download')}
           className="h-10 rounded-r-none px-3 sm:h-8"
         >
@@ -661,26 +1349,31 @@ export function Toolbar(props: ToolbarProps) {
               </span>
             </label>
             <div className={cn('space-y-1.5', !compressOnDownload && 'pointer-events-none opacity-40')}>
-              <div className="text-xs font-medium">{t('tb.compress_quality')}</div>
+              <div className="text-xs font-medium">{t('tb.compress_level')}</div>
               <Select
-                value={compressQuality}
-                onValueChange={(v) => setCompressQuality(v as 'small' | 'balanced' | 'sharp')}
+                value={compressLevel}
+                onValueChange={(v) => setCompressLevel(v as CompressionLevel)}
               >
-                <SelectTrigger size="sm" className="w-full" disabled={!compressOnDownload}>
+                <SelectTrigger
+                  size="sm"
+                  className="w-full"
+                  disabled={!compressOnDownload}
+                  aria-label={t('tb.compress_level')}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="small">
-                    <span className="font-medium">{t('tb.compress_quality_small')}</span>
-                    <span className="ms-2 text-xs text-muted-foreground">96 DPI</span>
+                  <SelectItem value="low">
+                    <span className="font-medium">{t('tb.compress_low')}</span>
+                    <span className="ms-2 text-xs text-muted-foreground">200 DPI</span>
                   </SelectItem>
-                  <SelectItem value="balanced">
-                    <span className="font-medium">{t('tb.compress_quality_balanced')}</span>
+                  <SelectItem value="mid">
+                    <span className="font-medium">{t('tb.compress_mid')}</span>
                     <span className="ms-2 text-xs text-muted-foreground">150 DPI</span>
                   </SelectItem>
-                  <SelectItem value="sharp">
-                    <span className="font-medium">{t('tb.compress_quality_sharp')}</span>
-                    <span className="ms-2 text-xs text-muted-foreground">200 DPI</span>
+                  <SelectItem value="high">
+                    <span className="font-medium">{t('tb.compress_high')}</span>
+                    <span className="ms-2 text-xs text-muted-foreground">96 DPI</span>
                   </SelectItem>
                 </SelectContent>
               </Select>

@@ -1,23 +1,37 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
-import type { Annotation, PageInfo } from '@/types'
+import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import type { Annotation, PageInfo, PageNumberSettings, WatermarkSettings } from '@/types'
 import { FONT_FAMILIES, normalizeFamily, pdfFontIdFor } from './fonts'
 import { pointsToSmoothPath } from './drawing'
 import { assertNever } from './assertNever'
+import { normalizeWatermark, watermarkIsVisible } from './watermark'
+import { formatPageNumber, normalizePageNumbers, pageNumbersAreVisible } from './pageNumbers'
 
 interface BuildPdfOptions {
   pdfBytes: Uint8Array
   annotations: Annotation[]
   pages: PageInfo[]
   formFieldEdits: Map<string, string | boolean>
+  watermark?: WatermarkSettings
+  pageNumbers?: PageNumberSettings
   // Raster fallback. When provided, we don't load `pdfBytes` through
   // pdf-lib at all — we build a fresh document where each page is the
   // supplied PNG/JPG image at the page's PDF dimensions, then draw
   // annotations on top. The caller switches to this path when the strict
   // pdf-lib load throws on a source PDF whose object structure pdf-lib
   // can't reconcile (real-world government forms with linearised xref
-  // streams, etc.). Form-widget edits are dropped in this mode — the
-  // image already has the rendered widget state baked in.
+  // streams, etc.). Form-widget edits are not applied in this mode; callers
+  // that need them must bake the rendered widget state into `pageImages`.
   pageImages?: string[]
+}
+
+type BuildableAnnotation = Exclude<Annotation, { type: 'redaction' }>
+
+function textEditCoverBleed(fontSize: number) {
+  return {
+    x: Math.min(1.5, Math.max(0.5, fontSize * 0.06)),
+    top: Math.min(2, Math.max(0.75, fontSize * 0.08)),
+    bottom: Math.min(4, Math.max(1.5, fontSize * 0.18)),
+  }
 }
 
 export interface Run {
@@ -29,6 +43,12 @@ export interface Run {
 
 export async function buildPdf(opts: BuildPdfOptions): Promise<Uint8Array> {
   const { pdfBytes, annotations, pages, formFieldEdits, pageImages } = opts
+  if (annotations.some((a) => a.type === 'redaction')) {
+    throw new Error('Redaction annotations must be raster-flattened before buildPdf')
+  }
+  const drawableAnnotations = annotations as BuildableAnnotation[]
+  const watermark = normalizeWatermark(opts.watermark)
+  const pageNumbers = normalizePageNumbers(opts.pageNumbers)
   let pdfDoc: Awaited<ReturnType<typeof PDFDocument.load>>
   if (pageImages && pageImages.length === pages.length) {
     // Raster fallback path. Build a fresh document — one page per supplied
@@ -139,14 +159,38 @@ export async function buildPdf(opts: BuildPdfOptions): Promise<Uint8Array> {
     return { font: await getFont(stdId), needsSanitize: true }
   }
 
-  const byPage = new Map<number, Annotation[]>()
-  for (const a of annotations) {
+  const byPage = new Map<number, BuildableAnnotation[]>()
+  for (const a of drawableAnnotations) {
     if (!byPage.has(a.pageIdx)) byPage.set(a.pageIdx, [])
     byPage.get(a.pageIdx)!.push(a)
   }
 
   const pdfPages = pdfDoc.getPages()
   const sigCache = new Map<string, Awaited<ReturnType<typeof pdfDoc.embedPng>>>()
+  const watermarkFont = watermarkIsVisible(watermark)
+    ? await getFont('HelveticaBold')
+    : null
+  const pageNumberFont = pageNumbersAreVisible(pageNumbers)
+    ? await getFont('Helvetica')
+    : null
+
+  if (watermarkFont) {
+    for (let pageIdx = 0; pageIdx < pdfPages.length; pageIdx++) {
+      const pdfPage = pdfPages[pageIdx]
+      const info = pages[pageIdx]
+      if (!info) continue
+      drawWatermark(pdfPage, info, watermark, watermarkFont)
+    }
+  }
+
+  if (pageNumberFont) {
+    for (let pageIdx = 0; pageIdx < pdfPages.length; pageIdx++) {
+      const pdfPage = pdfPages[pageIdx]
+      const info = pages[pageIdx]
+      if (!info) continue
+      drawPageNumber(pdfPage, info, pageNumbers, pageIdx, pdfPages.length, pageNumberFont)
+    }
+  }
 
   for (const [pageIdx, list] of byPage) {
     const pdfPage = pdfPages[pageIdx]
@@ -240,7 +284,6 @@ export async function buildPdf(opts: BuildPdfOptions): Promise<Uint8Array> {
         // Cover the original glyphs with a white rectangle, then draw the
         // user's replacement on top in the matched fallback font. Same path
         // as text annotations above, modulo the cover step + alignment.
-        if (!a.data) continue
         const family = normalizeFamily(a.family)
         const fontSize = a.fontSize
         const topPdfY = info.pdfHeight - a.y
@@ -248,10 +291,11 @@ export async function buildPdf(opts: BuildPdfOptions): Promise<Uint8Array> {
         // set, else the editor bbox). The cover's location does NOT follow
         // the editor's current x/y — that way a user can drag the textEdit
         // somewhere else on the page and the source stays masked.
-        const coverX = a.origX ?? a.x
-        const coverY = a.origY ?? a.y
-        const coverW = a.origW ?? a.w
-        const coverH = a.origH ?? a.h
+        const bleed = textEditCoverBleed(fontSize)
+        const coverX = (a.origX ?? a.x) - bleed.x
+        const coverY = (a.origY ?? a.y) - bleed.top
+        const coverW = (a.origW ?? a.w) + bleed.x * 2
+        const coverH = (a.origH ?? a.h) + bleed.top + bleed.bottom
         pdfPage.drawRectangle({
           x: coverX,
           y: info.pdfHeight - (coverY + coverH),
@@ -259,11 +303,11 @@ export async function buildPdf(opts: BuildPdfOptions): Promise<Uint8Array> {
           height: coverH,
           color: parseHexColor(a.cover ?? '#ffffff'),
         })
-        const lines = parseHtmlToLines(a.data)
+        const lines = parseHtmlToLines(a.data || '')
         // line-height matches the screen-side editor: tighter than the
         // text-annotation 1.2 to land glyphs visually close to the original.
         const lineHeight = fontSize * 1.0
-        const padX = a.align && a.align !== 'left' ? 0 : 4
+        const padX = 0
         const align = a.align ?? 'left'
         const color = parseHexColor(a.color)
         for (let li = 0; li < lines.length; li++) {
@@ -324,6 +368,66 @@ export async function buildPdf(opts: BuildPdfOptions): Promise<Uint8Array> {
     }
     throw err
   }
+}
+
+function drawWatermark(
+  pdfPage: PDFPage,
+  info: PageInfo,
+  watermark: WatermarkSettings,
+  font: PDFFont,
+) {
+  const text = watermark.text.trim()
+  if (!text) return
+  const maxWidth = Math.max(info.pdfWidth, info.pdfHeight) * 0.85
+  let fontSize = watermark.fontSize
+  const measured = font.widthOfTextAtSize(text, fontSize)
+  if (measured > maxWidth) fontSize *= maxWidth / measured
+  const width = font.widthOfTextAtSize(text, fontSize)
+  const height = font.heightAtSize(fontSize)
+  const radians = (watermark.rotation * Math.PI) / 180
+  const rotatedCenterX = (width * Math.cos(radians) - height * Math.sin(radians)) / 2
+  const rotatedCenterY = (width * Math.sin(radians) + height * Math.cos(radians)) / 2
+  pdfPage.drawText(text, {
+    x: info.pdfWidth / 2 - rotatedCenterX,
+    y: info.pdfHeight / 2 - rotatedCenterY,
+    size: fontSize,
+    font,
+    color: parseHexColor(watermark.color),
+    opacity: watermark.opacity,
+    rotate: degrees(watermark.rotation),
+  })
+}
+
+function drawPageNumber(
+  pdfPage: PDFPage,
+  info: PageInfo,
+  pageNumbers: PageNumberSettings,
+  pageIdx: number,
+  totalPages: number,
+  font: PDFFont,
+) {
+  const text = formatPageNumber(pageNumbers, pageIdx, totalPages)
+  const fontSize = pageNumbers.fontSize
+  const width = font.widthOfTextAtSize(text, fontSize)
+  const height = font.heightAtSize(fontSize)
+  const margin = pageNumbers.margin
+  const x =
+    pageNumbers.position.endsWith('left')
+      ? margin
+      : pageNumbers.position.endsWith('right')
+        ? info.pdfWidth - margin - width
+        : (info.pdfWidth - width) / 2
+  const y =
+    pageNumbers.position.startsWith('top')
+      ? info.pdfHeight - margin - height
+      : margin
+  pdfPage.drawText(text, {
+    x,
+    y,
+    size: fontSize,
+    font,
+    color: parseHexColor(pageNumbers.color),
+  })
 }
 
 // Parse contentEditable HTML into lines of styled text runs. Handles

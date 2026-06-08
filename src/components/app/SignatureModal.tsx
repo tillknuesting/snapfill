@@ -43,11 +43,15 @@ export function SignatureModal({ open, onOpenChange }: Props) {
 
   // Reset on open
   useEffect(() => {
-    if (open) {
+    if (!open) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
       setTab('draw')
       setTypedText('')
       setSaved(loadSavedSignatures())
-    }
+    })
+    return () => { cancelled = true }
   }, [open])
 
   // Preload handwriting fonts
@@ -314,4 +318,3 @@ function TypePad({ text, setText, font, setFont, color, onCommit }: TypePadProps
     </div>
   )
 }
-

@@ -82,7 +82,7 @@
           "Add photos and signature images",
           "Acroform widget support (auto-detected text/checkbox fields)",
           "12 UI languages with right-to-left support for Arabic",
-          "Multiple themes (light, dark, sepia, high-contrast, solarized, dracula)",
+          "Multiple themes (light, dark, sepia, solarized light, gruvbox light, catppuccin latte, github light, high-contrast, solarized, dracula, nord, gruvbox, catppuccin, tokyo night)",
           "Saved profile for one-click autofill of common fields",
           "Saved signatures, reusable across documents",
           "Recent files via IndexedDB (no server upload)",
@@ -113,9 +113,17 @@
             light:     { cls: '',                isDark: false },
             dark:      { cls: '',                isDark: true  },
             sepia:     { cls: 'theme-sepia',     isDark: false },
+            'solarized-light': { cls: 'theme-solarized-light', isDark: false },
+            'gruvbox-light': { cls: 'theme-gruvbox-light', isDark: false },
+            'catppuccin-latte': { cls: 'theme-catppuccin-latte', isDark: false },
+            'github-light': { cls: 'theme-github-light', isDark: false },
             hc:        { cls: 'theme-hc',        isDark: true  },
             solarized: { cls: 'theme-solarized', isDark: true  },
             dracula:   { cls: 'theme-dracula',   isDark: true  },
+            nord:      { cls: 'theme-nord',      isDark: true  },
+            gruvbox:   { cls: 'theme-gruvbox',   isDark: true  },
+            catppuccin: { cls: 'theme-catppuccin', isDark: true  },
+            tokyo:     { cls: 'theme-tokyo',     isDark: true  },
           }[resolved];
           if (!meta) return;
           if (meta.cls) document.documentElement.classList.add(meta.cls);

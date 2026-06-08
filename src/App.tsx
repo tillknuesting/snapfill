@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import * as pdfjsLib from 'pdfjs-dist'
+import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { Toolbar } from '@/components/app/Toolbar'
 import { ModeBanner } from '@/components/app/ModeBanner'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { Onboarding } from '@/components/app/Onboarding'
 import { isRTL } from '@/utils/i18n'
 import { PdfViewer } from '@/components/app/PdfViewer'
-import { PdfThumbnailRail } from '@/components/app/PdfThumbnailRail'
+import { PdfPagesDialog, PdfThumbnailRail } from '@/components/app/PdfThumbnailRail'
 import { EmptyState } from '@/components/app/EmptyState'
 import { SignatureModal } from '@/components/app/SignatureModal'
 import { ProfileDialog } from '@/components/app/ProfileDialog'
@@ -21,17 +23,305 @@ import {
 // pattern as `buildPdf` in handleDownload.
 import { formatDate } from '@/utils/dateFormats'
 import type { PDFPageProxy } from 'pdfjs-dist'
-import type { Annotation, FontFamily } from '@/types'
+import type { Annotation, CompressionLevel, FontFamily, PageInfo, RedactionAnnotation } from '@/types'
 
 const AUTO_SAVE_DEBOUNCE_MS = 800
 
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
+
+type CompressionPreset = {
+  dpi: number
+  jpeg: number
+}
+
+type CanvasOverlayPainter = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => void
+
+const COMPRESSION_PRESETS: Record<CompressionLevel, CompressionPreset> = {
+  // Low compression keeps more visual detail.
+  low: { dpi: 200, jpeg: 0.85 },
+  // Mid is the default sharing/printing compromise.
+  mid: { dpi: 150, jpeg: 0.75 },
+  // High compression aims for the smallest file.
+  high: { dpi: 96, jpeg: 0.6 },
+}
+
+async function renderPdfPageToJpeg(
+  page: PDFPageProxy,
+  preset: CompressionPreset,
+  paintOverlays?: CanvasOverlayPainter,
+): Promise<string> {
+  const scale = preset.dpi / 72
+  const vp = page.getViewport({ scale })
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.floor(vp.width)
+  canvas.height = Math.floor(vp.height)
+  try {
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Could not allocate canvas context')
+    await page.render({ canvasContext: ctx, viewport: vp, canvas }).promise
+    paintOverlays?.(ctx, canvas)
+    return canvas.toDataURL('image/jpeg', preset.jpeg)
+  } finally {
+    // Release the backing store promptly on large multi-page documents.
+    canvas.width = 0
+    canvas.height = 0
+  }
+}
+
+async function renderPdfBytesToJpegs(
+  bytes: Uint8Array,
+  expectedPageCount: number,
+  preset: CompressionPreset,
+): Promise<string[]> {
+  const task = pdfjsLib.getDocument({ data: bytes.slice() })
+  const doc = await task.promise
+  try {
+    if (doc.numPages !== expectedPageCount) {
+      throw new Error(`Compressed render page-count mismatch: expected ${expectedPageCount}, got ${doc.numPages}`)
+    }
+    const pageImages: string[] = []
+    for (let pageNo = 1; pageNo <= doc.numPages; pageNo++) {
+      const page = await doc.getPage(pageNo)
+      pageImages.push(await renderPdfPageToJpeg(page, preset))
+      try { page.cleanup() } catch { /* noop */ }
+    }
+    return pageImages
+  } finally {
+    await doc.destroy()
+  }
+}
+
+async function renderLoadedPagesToJpegs(
+  pages: PDFPageProxy[],
+  expectedPageCount: number,
+  preset: CompressionPreset,
+  opts: { bakeLiveFormFields?: boolean } = {},
+): Promise<string[]> {
+  if (pages.length !== expectedPageCount) {
+    throw new Error(`Compressed render page-count mismatch: expected ${expectedPageCount}, got ${pages.length}`)
+  }
+  const pageImages: string[] = []
+  for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
+    const page = pages[pageIdx]
+    pageImages.push(await renderPdfPageToJpeg(
+      page,
+      preset,
+      opts.bakeLiveFormFields
+        ? (ctx, canvas) => drawLiveFormFieldsOntoCanvas(ctx, canvas, pageIdx)
+        : undefined,
+    ))
+  }
+  return pageImages
+}
+
+function drawLiveFormFieldsOntoCanvas(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  pageIdx: number,
+) {
+  const pageEl = document.querySelector<HTMLElement>(`[data-page-idx="${pageIdx}"]`)
+  if (!pageEl) return
+  const pageRect = pageEl.getBoundingClientRect()
+  if (pageRect.width <= 0 || pageRect.height <= 0) return
+  const scaleX = canvas.width / pageRect.width
+  const scaleY = canvas.height / pageRect.height
+  const fields = pageEl.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-form-field-name]')
+  if (fields.length === 0) return
+
+  ctx.save()
+  for (const el of Array.from(fields)) {
+    const rect = el.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) continue
+    const x = (rect.left - pageRect.left) * scaleX
+    const y = (rect.top - pageRect.top) * scaleY
+    const w = rect.width * scaleX
+    const h = rect.height * scaleY
+
+    if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+      if (!el.checked) continue
+      const pad = Math.min(w, h) * 0.22
+      ctx.strokeStyle = '#0a1f3d'
+      ctx.lineWidth = Math.max(1.5, Math.min(w, h) * 0.12)
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.beginPath()
+      ctx.moveTo(x + pad, y + h * 0.52)
+      ctx.lineTo(x + w * 0.42, y + h - pad)
+      ctx.lineTo(x + w - pad, y + pad)
+      ctx.stroke()
+      continue
+    }
+
+    const value = el.value
+    if (!value) continue
+    const style = window.getComputedStyle(el)
+    const cssFontSize = Number.parseFloat(style.fontSize) || Math.min(rect.height * 0.7, 14)
+    const fontSize = Math.max(6, cssFontSize * scaleY)
+    const lineHeight = fontSize * 1.2
+    const padX = Math.max(2, Number.parseFloat(style.paddingLeft) * scaleX || 4 * scaleX)
+    const padY = Math.max(1, Number.parseFloat(style.paddingTop) * scaleY || 2 * scaleY)
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(x, y, w, h)
+    ctx.clip()
+    ctx.fillStyle = style.color || '#0a1f3d'
+    ctx.font = `${style.fontStyle || 'normal'} ${style.fontWeight || '400'} ${fontSize}px ${style.fontFamily || 'Helvetica, Arial, sans-serif'}`
+    ctx.textBaseline = el instanceof HTMLTextAreaElement ? 'top' : 'middle'
+    const lines = value.split(/\r?\n/)
+    if (el instanceof HTMLTextAreaElement) {
+      lines.forEach((line, idx) => {
+        ctx.fillText(line, x + padX, y + padY + idx * lineHeight)
+      })
+    } else {
+      ctx.fillText(lines[0] ?? '', x + padX, y + h / 2)
+    }
+    ctx.restore()
+  }
+  ctx.restore()
+}
+
+function captureRenderedPageImagesWithFormFields(pages: PageInfo[]): string[] {
+  const pageImages: string[] = []
+  for (let i = 0; i < pages.length; i++) {
+    const source = document.querySelector<HTMLCanvasElement>(`[data-page-idx="${i}"] canvas`)
+    if (!source) throw new Error(`page ${i + 1} canvas not rendered`)
+    const canvas = document.createElement('canvas')
+    canvas.width = source.width
+    canvas.height = source.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Could not allocate canvas context')
+    ctx.drawImage(source, 0, 0)
+    drawLiveFormFieldsOntoCanvas(ctx, canvas, i)
+    pageImages.push(canvas.toDataURL('image/png'))
+    canvas.width = 0
+    canvas.height = 0
+  }
+  return pageImages
+}
+
+async function burnRedactionsIntoPageImages(
+  pageImages: string[],
+  pages: PageInfo[],
+  redactions: RedactionAnnotation[],
+  jpegQuality: number,
+): Promise<string[]> {
+  if (redactions.length === 0) return pageImages
+  const byPage = new Map<number, RedactionAnnotation[]>()
+  for (const r of redactions) {
+    const list = byPage.get(r.pageIdx) ?? []
+    list.push(r)
+    byPage.set(r.pageIdx, list)
+  }
+  const out: string[] = []
+  for (let pageIdx = 0; pageIdx < pageImages.length; pageIdx++) {
+    const list = byPage.get(pageIdx)
+    if (!list?.length) {
+      out.push(pageImages[pageIdx])
+      continue
+    }
+    const info = pages[pageIdx]
+    if (!info) {
+      out.push(pageImages[pageIdx])
+      continue
+    }
+    const img = await loadImage(pageImages[pageIdx])
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth || img.width || 1
+    canvas.height = img.naturalHeight || img.height || 1
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Could not allocate redaction canvas')
+    ctx.drawImage(img, 0, 0)
+    const sx = canvas.width / info.pdfWidth
+    const sy = canvas.height / info.pdfHeight
+    for (const r of list) {
+      ctx.fillStyle = r.color || '#000000'
+      ctx.fillRect(r.x * sx, r.y * sy, r.w * sx, r.h * sy)
+    }
+    out.push(canvas.toDataURL('image/jpeg', jpegQuality))
+    canvas.width = 0
+    canvas.height = 0
+  }
+  return out
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Could not decode page image for redaction'))
+    img.src = dataUrl
+  })
+}
+
+function runWhenIdle(fn: () => void) {
+  const requestIdle = (window as Window & {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+  }).requestIdleCallback
+  if (requestIdle) {
+    requestIdle(fn, { timeout: 1_000 })
+    return
+  }
+  window.setTimeout(fn, 0)
+}
+
+function AutoSaveRecentFile() {
+  const recentId = usePdfStore((s) => s.recentId)
+  const annotations = usePdfStore((s) => s.annotations)
+  const formFieldEdits = usePdfStore((s) => s.formFieldEdits)
+  const watermark = usePdfStore((s) => s.watermark)
+  const pageNumbers = usePdfStore((s) => s.pageNumbers)
+  const lastSavedRef = useRef<{
+    id: string
+    ann: Annotation[]
+    ff: Map<string, string | boolean>
+    wm: typeof watermark
+    pn: typeof pageNumbers
+  } | null>(null)
+
+  useEffect(() => {
+    if (!recentId) return
+    // Skip the initial call right after loadFromRecent (lastSavedRef matches).
+    const last = lastSavedRef.current
+    if (last && last.id === recentId && last.ann === annotations && last.ff === formFieldEdits && last.wm === watermark && last.pn === pageNumbers) return
+    const timer = setTimeout(() => {
+      // Image annotations are deliberately session-only — strip before persist.
+      // They live in memory and download fine, but they don't follow the PDF
+      // across reloads or browser sessions.
+      const persisted = annotations.filter((a) => a.type !== 'image')
+      updateRecentFile(recentId, {
+        annotations: persisted,
+        formFieldEdits: Array.from(formFieldEdits.entries()),
+        watermark,
+        pageNumbers,
+      }).catch(() => {})
+      lastSavedRef.current = { id: recentId, ann: annotations, ff: formFieldEdits, wm: watermark, pn: pageNumbers }
+    }, AUTO_SAVE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [recentId, annotations, formFieldEdits, watermark, pageNumbers])
+
+  return null
+}
+
 export default function App() {
-  const {
-    pdfBytes, fileName, recentId, mode, setMode, setPdf, loadFromRecent, mergeIntoPdf, reorderPages,
-    annotations, pages, formFieldEdits,
-    selectedId, setSelectedId, removeAnnotation, undo, redo,
-    setPendingTextValue, setPendingDateMs,
-  } = usePdfStore()
+  const pdfBytes = usePdfStore((s) => s.pdfBytes)
+  const recentId = usePdfStore((s) => s.recentId)
+  const mode = usePdfStore((s) => s.mode)
+  const selectedId = usePdfStore((s) => s.selectedId)
+  const setMode = usePdfStore((s) => s.setMode)
+  const setPdf = usePdfStore((s) => s.setPdf)
+  const setRecentId = usePdfStore((s) => s.setRecentId)
+  const loadFromRecent = usePdfStore((s) => s.loadFromRecent)
+  const mergeIntoPdf = usePdfStore((s) => s.mergeIntoPdf)
+  const reorderPages = usePdfStore((s) => s.reorderPages)
+  const rotatePage = usePdfStore((s) => s.rotatePage)
+  const deletePage = usePdfStore((s) => s.deletePage)
+  const setSelectedId = usePdfStore((s) => s.setSelectedId)
+  const removeAnnotation = usePdfStore((s) => s.removeAnnotation)
+  const undo = usePdfStore((s) => s.undo)
+  const redo = usePdfStore((s) => s.redo)
+  const setPendingTextValue = usePdfStore((s) => s.setPendingTextValue)
+  const setPendingDateMs = usePdfStore((s) => s.setPendingDateMs)
 
   const [textFamily, setTextFamily] = useState<FontFamily>('helvetica')
   const [textSize, setTextSize] = useState(14)
@@ -41,6 +331,9 @@ export default function App() {
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [recentRefreshKey, setRecentRefreshKey] = useState(0)
   const [pdfPages, setPdfPages] = useState<PDFPageProxy[]>([])
+  const [pagesDialogOpen, setPagesDialogOpen] = useState(false)
+  const [tourReplayKey, setTourReplayKey] = useState(0)
+  const openSeqRef = useRef(0)
 
   // Mirror the current UI language onto the <html> element so the browser's
   // own RTL handling kicks in for Arabic — text reading order, scrollbars,
@@ -68,19 +361,42 @@ export default function App() {
   }, [setLang, lang])
 
   const handleOpenFile = useCallback(async (file: File) => {
+    const seq = ++openSeqRef.current
     const buf = await file.arrayBuffer()
     const bytes = new Uint8Array(buf)
-    const id = await addRecentFile(file.name, bytes)
-    // Try loading saved annotations for this file (if it's a duplicate of one
-    // we've seen before, we restore the user's previous edits).
-    const saved = id ? await loadRecentFileFull(id) : null
-    if (saved) {
-      loadFromRecent(saved.bytes, saved.name, saved.id, saved.annotations, saved.formFieldEdits)
-    } else {
-      setPdf(bytes, file.name, id || null)
-    }
-    setRecentRefreshKey((k) => k + 1)
-  }, [setPdf, loadFromRecent])
+    // Show the PDF immediately. Recent-file fingerprinting walks the full
+    // byte array; run it after first paint so large scans don't feel stuck.
+    setPdf(bytes, file.name, null)
+    runWhenIdle(() => {
+      void (async () => {
+        const id = await addRecentFile(file.name, bytes)
+        if (!id || seq !== openSeqRef.current) return
+        // Try loading saved annotations for this file (if it's a duplicate of
+        // one we've seen before, we restore previous edits). If the user has
+        // already started editing, keep their current session and only attach
+        // the recent ID so auto-save can continue from there.
+        const saved = await loadRecentFileFull(id)
+        if (seq !== openSeqRef.current) return
+        const cur = usePdfStore.getState()
+        const untouched =
+          cur.pdfBytes === bytes &&
+          cur.annotations.length === 0 &&
+          cur.formFieldEdits.size === 0
+        const hasSavedEdits = !!saved && (
+          saved.annotations.length > 0 ||
+          saved.formFieldEdits.length > 0 ||
+          (saved.watermark.enabled && saved.watermark.text.trim().length > 0) ||
+          saved.pageNumbers.enabled
+        )
+        if (hasSavedEdits && untouched) {
+          loadFromRecent(saved.bytes, saved.name, saved.id, saved.annotations, saved.formFieldEdits, saved.watermark, saved.pageNumbers)
+        } else if (cur.pdfBytes === bytes) {
+          setRecentId(id)
+        }
+        setRecentRefreshKey((k) => k + 1)
+      })()
+    })
+  }, [setPdf, setRecentId, loadFromRecent])
 
   const handleMergePdf = useCallback(async (file: File, where: 'start' | 'end') => {
     if (!pdfBytes) return
@@ -123,10 +439,46 @@ export default function App() {
     }
   }, [pdfBytes, recentId, reorderPages])
 
+  const handleRotatePage = useCallback(async (pageIdx: number, direction: 'cw' | 'ccw') => {
+    if (!pdfBytes) return
+    try {
+      const { rotatePdfPage } = await import('@/utils/rotatePage')
+      const bytes = await rotatePdfPage(pdfBytes, pageIdx, direction)
+      rotatePage(bytes)
+      if (recentId) {
+        await updateRecentFile(recentId, {
+          bytes,
+          size: bytes.byteLength,
+          openedAt: Date.now(),
+        })
+      }
+    } catch (err) {
+      alert('Could not rotate page: ' + (err as Error).message)
+    }
+  }, [pdfBytes, recentId, rotatePage])
+
+  const handleDeletePage = useCallback(async (pageIdx: number) => {
+    if (!pdfBytes) return
+    try {
+      const { deletePdfPage } = await import('@/utils/deletePage')
+      const bytes = await deletePdfPage(pdfBytes, pageIdx)
+      deletePage(bytes, pageIdx)
+      if (recentId) {
+        await updateRecentFile(recentId, {
+          bytes,
+          size: bytes.byteLength,
+          openedAt: Date.now(),
+        })
+      }
+    } catch (err) {
+      alert('Could not delete page: ' + (err as Error).message)
+    }
+  }, [deletePage, pdfBytes, recentId])
+
   const handleSwitchTo = useCallback(async (id: string) => {
     const rec = await loadRecentFileFull(id)
     if (!rec) return
-    loadFromRecent(rec.bytes, rec.name, rec.id, rec.annotations, rec.formFieldEdits)
+    loadFromRecent(rec.bytes, rec.name, rec.id, rec.annotations, rec.formFieldEdits, rec.watermark, rec.pageNumbers)
     setRecentRefreshKey((k) => k + 1)
   }, [loadFromRecent])
 
@@ -138,119 +490,177 @@ export default function App() {
     input.click()
   }, [handleOpenFile])
 
-  // Auto-save: debounce annotation / form-field changes and persist to IDB.
-  const lastSavedRef = useRef<{ id: string; ann: Annotation[]; ff: Map<string, string | boolean> } | null>(null)
-  useEffect(() => {
-    if (!recentId) return
-    // Skip the initial call right after loadFromRecent (lastSavedRef matches).
-    const last = lastSavedRef.current
-    if (last && last.id === recentId && last.ann === annotations && last.ff === formFieldEdits) return
-    const timer = setTimeout(() => {
-      // Image annotations are deliberately session-only — strip before persist.
-      // They live in memory and download fine, but they don't follow the PDF
-      // across reloads or browser sessions.
-      const persisted = annotations.filter((a) => a.type !== 'image')
-      updateRecentFile(recentId, {
-        annotations: persisted,
-        formFieldEdits: Array.from(formFieldEdits.entries()),
-      }).catch(() => {})
-      lastSavedRef.current = { id: recentId, ann: annotations, ff: formFieldEdits }
-    }, AUTO_SAVE_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [recentId, annotations, formFieldEdits])
-
   const handleDownload = useCallback(async (
-    opts: { compress?: boolean; quality?: 'small' | 'balanced' | 'sharp' } = {},
+    opts: { compress?: boolean; level?: CompressionLevel } = {},
   ) => {
-    if (!pdfBytes) return
-    const { compress = false, quality = 'balanced' } = opts
+    const {
+      pdfBytes: currentPdfBytes,
+      annotations,
+      pages,
+      formFieldEdits,
+      watermark,
+      pageNumbers,
+      fileName: currentFileName,
+    } = usePdfStore.getState()
+    if (!currentPdfBytes) return
+    if (pages.length === 0) {
+      alert('PDF is still loading; please wait and try again.')
+      return
+    }
+    const { compress = false, level = 'mid' } = opts
     // Lazy-load buildPdf and its heavy deps (pdf-lib + fontkit) — they're
     // only needed at download time, so they shouldn't be in the initial bundle.
     const { buildPdf } = await import('@/utils/buildPdf')
+    const redactions = annotations.filter((a): a is RedactionAnnotation => a.type === 'redaction')
+    const annotationsWithoutRedactions = annotations.filter((a) => a.type !== 'redaction')
 
-    function triggerDownload(out: Uint8Array) {
-      const blob = new Blob([out as BlobPart], { type: 'application/pdf' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = fileName.replace(/\.pdf$/i, '') + '-filled.pdf' || 'filled.pdf'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+    if (redactions.length > 0) {
+      const preset = compress ? COMPRESSION_PRESETS[level] : COMPRESSION_PRESETS.low
+      try {
+        // Redaction output is deliberately raster-flattened. A vector black
+        // rectangle over source PDF text is only cosmetic; rasterising after
+        // the edit pass removes the selectable source text from the saved PDF.
+        const editedWithoutRedactions = await buildPdf({
+          pdfBytes: currentPdfBytes,
+          annotations: annotationsWithoutRedactions,
+          pages,
+          formFieldEdits,
+          watermark,
+          pageNumbers,
+        })
+        const pageImages = await renderPdfBytesToJpegs(editedWithoutRedactions, pages.length, preset)
+        const redactedImages = await burnRedactionsIntoPageImages(pageImages, pages, redactions, preset.jpeg)
+        const redacted = await buildPdf({
+          pdfBytes: editedWithoutRedactions,
+          annotations: [],
+          pages,
+          formFieldEdits: new Map(),
+          pageImages: redactedImages,
+        })
+        triggerDownload(redacted)
+        return
+      } catch (err) {
+        console.warn('redacted download failed, trying source-page raster fallback:', err)
+        try {
+          if (pdfPages.length === 0) throw new Error('PDF is still loading; please wait and try again.', { cause: err })
+          const pageImages = await renderLoadedPagesToJpegs(pdfPages, pages.length, preset, {
+            bakeLiveFormFields: true,
+          })
+          const editedFallback = await buildPdf({
+            pdfBytes: currentPdfBytes,
+            annotations: annotationsWithoutRedactions,
+            pages,
+            formFieldEdits: new Map(),
+            watermark,
+            pageNumbers,
+            pageImages,
+          })
+          const editedImages = await renderPdfBytesToJpegs(editedFallback, pages.length, preset)
+          const redactedImages = await burnRedactionsIntoPageImages(editedImages, pages, redactions, preset.jpeg)
+          const redacted = await buildPdf({
+            pdfBytes: editedFallback,
+            annotations: [],
+            pages,
+            formFieldEdits: new Map(),
+            pageImages: redactedImages,
+          })
+          triggerDownload(redacted)
+          return
+        } catch (fallbackErr) {
+          console.error('redacted download failed', fallbackErr)
+          alert('Could not build redacted PDF: ' + (fallbackErr as Error).message)
+          return
+        }
+      }
     }
 
-    // "Make PDF smaller": re-render each page off-screen at a target DPI
-    // (independent of the user's zoom + devicePixelRatio) and embed as
-    // JPEG. This trades selectable text + form-widget editability for a
-    // predictable size reduction. The DPI presets:
-    //   - small    — 96  DPI, JPEG q=0.6  (typical 8-12× shrink on scans)
-    //   - balanced — 150 DPI, JPEG q=0.75 (good for printing/sharing)
-    //   - sharp    — 200 DPI, JPEG q=0.85 (still smaller, near-lossless)
-    // Pages render serially (not Promise.all) so a 100-page doc doesn't
-    // OOM the browser.
-    const QUALITY_PRESETS = {
-      small:    { dpi: 96,  jpeg: 0.6 },
-      balanced: { dpi: 150, jpeg: 0.75 },
-      sharp:    { dpi: 200, jpeg: 0.85 },
-    } as const
     if (compress) {
       if (pdfPages.length === 0) {
         alert('PDF is still loading; please wait and try again.')
         return
       }
       try {
-        const preset = QUALITY_PRESETS[quality]
-        const scale = preset.dpi / 72
-        const pageImages: string[] = []
-        for (const page of pdfPages) {
-          const vp = page.getViewport({ scale })
-          const canvas = document.createElement('canvas')
-          canvas.width = Math.floor(vp.width)
-          canvas.height = Math.floor(vp.height)
-          const ctx = canvas.getContext('2d')
-          if (!ctx) throw new Error('Could not allocate canvas context')
-          await page.render({ canvasContext: ctx, viewport: vp, canvas }).promise
-          pageImages.push(canvas.toDataURL('image/jpeg', preset.jpeg))
-        }
-        const out = await buildPdf({ pdfBytes, annotations, pages, formFieldEdits, pageImages })
-        triggerDownload(out)
+        const preset = COMPRESSION_PRESETS[level]
+        // First build the normal edited PDF, then rasterise that output.
+        // This preserves annotations and filled AcroForm widgets before
+        // converting the document into JPEG-backed pages.
+        const edited = await buildPdf({ pdfBytes: currentPdfBytes, annotations, pages, formFieldEdits, watermark, pageNumbers })
+        const pageImages = await renderPdfBytesToJpegs(edited, pages.length, preset)
+        const compressed = await buildPdf({
+          pdfBytes: edited,
+          annotations: [],
+          pages,
+          formFieldEdits: new Map(),
+          pageImages,
+        })
+        triggerDownload(compressed.byteLength < edited.byteLength ? compressed : edited)
         return
       } catch (err) {
-        console.error('compressed download failed', err)
-        alert('Could not build compressed PDF: ' + (err as Error).message)
-        return
+        console.warn('edited compressed download failed, trying source-page raster fallback:', err)
+        try {
+          const preset = COMPRESSION_PRESETS[level]
+          const pageImages = await renderLoadedPagesToJpegs(pdfPages, pages.length, preset, {
+            bakeLiveFormFields: true,
+          })
+          const compressed = await buildPdf({
+            pdfBytes: currentPdfBytes,
+            annotations,
+            pages,
+            formFieldEdits: new Map(),
+            watermark,
+            pageNumbers,
+            pageImages,
+          })
+          triggerDownload(compressed)
+          return
+        } catch (fallbackErr) {
+          console.error('compressed download failed', fallbackErr)
+          alert('Could not build compressed PDF: ' + (fallbackErr as Error).message)
+          return
+        }
       }
     }
 
     try {
-      const out = await buildPdf({ pdfBytes, annotations, pages, formFieldEdits })
+      const out = await buildPdf({ pdfBytes: currentPdfBytes, annotations, pages, formFieldEdits, watermark, pageNumbers })
       triggerDownload(out)
     } catch (err) {
       console.warn('strict buildPdf failed, falling back to raster:', err)
       // Some real-world PDFs (encrypted-flagged government forms with
       // unusual cross-reference structures) defeat pdf-lib's parser. We
       // render each page from the canvases that pdf.js already painted
-      // into the DOM and embed those as images in a fresh PDF. Annotations
-      // are then drawn on top. Form-widget edits are dropped in this mode
-      // — the user can still annotate, sign, and download.
+      // into the DOM, bake live form-field overlays into those images, and
+      // embed them in a fresh PDF before drawing annotations on top.
       try {
-        const pageImages: string[] = []
-        for (let i = 0; i < pages.length; i++) {
-          const c = document.querySelector<HTMLCanvasElement>(
-            `[data-page-idx="${i}"] canvas`,
-          )
-          if (!c) throw new Error(`page ${i + 1} canvas not rendered`)
-          pageImages.push(c.toDataURL('image/png'))
-        }
-        const out = await buildPdf({ pdfBytes, annotations, pages, formFieldEdits, pageImages })
+        const pageImages = captureRenderedPageImagesWithFormFields(pages)
+        const out = await buildPdf({
+          pdfBytes: currentPdfBytes,
+          annotations,
+          pages,
+          formFieldEdits: new Map(),
+          watermark,
+          pageNumbers,
+          pageImages,
+        })
         triggerDownload(out)
       } catch (err2) {
         console.error(err2)
         alert('Could not build PDF: ' + (err2 as Error).message)
       }
     }
-  }, [pdfBytes, annotations, pages, formFieldEdits, fileName, pdfPages])
+    function triggerDownload(out: Uint8Array) {
+      const blob = new Blob([out as BlobPart], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const stem = currentFileName.replace(/\.pdf$/i, '') || 'filled'
+      a.download = `${stem}-filled.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    }
+  }, [pdfPages])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -276,6 +686,7 @@ export default function App() {
         if (k === 's') { e.preventDefault(); setMode(mode === 'select' ? 'idle' : 'select'); return }
         if (k === 'd') { e.preventDefault(); setMode(mode === 'draw'   ? 'idle' : 'draw');   return }
         if (k === 'e') { e.preventDefault(); setMode(mode === 'edit'   ? 'idle' : 'edit');   return }
+        if (k === 'r') { e.preventDefault(); setMode(mode === 'redact' ? 'idle' : 'redact'); return }
         if (k === 'i') {
           e.preventDefault()
           const now = Date.now()
@@ -301,7 +712,8 @@ export default function App() {
   return (
     <ErrorBoundary>
     <TooltipProvider>
-      <Onboarding />
+      <Onboarding replayKey={tourReplayKey} />
+      <AutoSaveRecentFile />
       <div className="flex h-full">
         <RecentSidebar
           onPickFile={pickFile}
@@ -315,7 +727,10 @@ export default function App() {
               onMergePdf={handleMergePdf}
               onOpenSignature={() => setSigModalOpen(true)}
               onOpenProfile={() => setProfileDialogOpen(true)}
+              onOpenHelp={() => setTourReplayKey((k) => k + 1)}
+              onOpenPages={() => setPagesDialogOpen(true)}
               onDownload={handleDownload}
+              hasMultiplePages={pdfPages.length > 1}
               textFamily={textFamily}
               setTextFamily={setTextFamily}
               textSize={textSize}
@@ -330,7 +745,7 @@ export default function App() {
             <ModeBanner />
           </div>
           <div className="flex min-h-0 flex-1">
-            <main id="pdf-main" className="flex-1 overflow-auto bg-muted/30">
+            <main id="pdf-main" className="flex-1 overflow-auto bg-muted/30 pb-32 sm:pb-0">
               {pdfBytes ? (
                 <PdfViewer
                   textFamily={textFamily}
@@ -340,16 +755,31 @@ export default function App() {
                   onPagesLoaded={setPdfPages}
                 />
               ) : (
-                <EmptyState onFile={handleOpenFile} />
+                <EmptyState onFile={handleOpenFile} onRecentFile={handleSwitchTo} />
               )}
             </main>
             {pdfBytes && pdfPages.length > 1 && (
-              <PdfThumbnailRail pages={pdfPages} onReorder={handleReorderPages} />
+              <PdfThumbnailRail
+                pages={pdfPages}
+                onReorder={handleReorderPages}
+                onRotatePage={handleRotatePage}
+                onDeletePage={handleDeletePage}
+              />
             )}
           </div>
         </div>
         <SignatureModal open={sigModalOpen} onOpenChange={setSigModalOpen} />
         <ProfileDialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen} />
+        {pdfBytes && pdfPages.length > 1 && (
+          <PdfPagesDialog
+            pages={pdfPages}
+            open={pagesDialogOpen}
+            onOpenChange={setPagesDialogOpen}
+            onReorder={handleReorderPages}
+            onRotatePage={handleRotatePage}
+            onDeletePage={handleDeletePage}
+          />
+        )}
       </div>
     </TooltipProvider>
     </ErrorBoundary>

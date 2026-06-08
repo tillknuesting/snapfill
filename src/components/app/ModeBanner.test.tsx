@@ -5,7 +5,7 @@ import { ModeBanner } from './ModeBanner'
 import { usePdfStore } from '@/store/usePdfStore'
 
 beforeEach(() => {
-  usePdfStore.setState({ mode: 'idle', selectedId: null })
+  usePdfStore.setState({ mode: 'idle', selectedId: null, lang: 'en' })
 })
 
 describe('ModeBanner', () => {
@@ -21,6 +21,7 @@ describe('ModeBanner', () => {
     ['draw', /^draw$/i],
     ['image', /place image/i],
     ['edit', /edit text/i],
+    ['redact', /^redact$/i],
   ] as const)('renders the right label for %s mode', (mode, pattern) => {
     usePdfStore.setState({ mode })
     render(<ModeBanner />)

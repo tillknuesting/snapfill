@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PDFPageProxy, PageViewport, RenderTask } from 'pdfjs-dist'
+import { useShallow } from 'zustand/react/shallow'
 import { Loader2 } from 'lucide-react'
 import { usePdfStore } from '@/store/usePdfStore'
-import type { Annotation as AnnotType, FontFamily, PageInfo, TextAnnotation, TextEditAnnotation } from '@/types'
+import type {
+  Annotation as AnnotType, FontFamily, PageInfo, PageNumberSettings, RedactionAnnotation, TextAnnotation, TextEditAnnotation,
+} from '@/types'
 import { Annotation } from './Annotation'
 import { FONT_FAMILIES } from '@/utils/fonts'
 import { detectFormRows, findRowAt, refineRowsWithText, type FormRow } from '@/utils/detectFormRows'
 import { pointsToSmoothPath, strokeToDrawingAnnotation } from '@/utils/drawing'
 import { cn } from '@/lib/utils'
+import { watermarkIsVisible } from '@/utils/watermark'
+import { formatPageNumber, pageNumbersAreVisible } from '@/utils/pageNumbers'
 
 // Edit mode reads pdf.js text positions to overlay clickable targets per run.
 // pdf.js reports a font family hint per text item; map it to one of our
@@ -120,6 +125,66 @@ function samplePageBackground(
   return `#${hx(r)}${hx(g)}${hx(b)}`
 }
 
+function sampleInkDensity(
+  canvas: HTMLCanvasElement | null,
+  cssX: number,
+  cssY: number,
+  cssW: number,
+  cssH: number,
+): number | null {
+  if (!canvas || cssW < 4 || cssH < 4) return null
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return null
+  const dpr = canvas.width / canvas.clientWidth
+  const x = Math.max(0, Math.floor(cssX * dpr))
+  const y = Math.max(0, Math.floor(cssY * dpr))
+  const w = Math.max(1, Math.min(canvas.width - x, Math.ceil(cssW * dpr)))
+  const h = Math.max(1, Math.min(canvas.height - y, Math.ceil(cssH * dpr)))
+  if (w <= 0 || h <= 0) return null
+  try {
+    const data = ctx.getImageData(x, y, w, h).data
+    let dark = 0
+    let total = 0
+    for (let py = 0; py < h; py += 2) {
+      for (let px = 0; px < w; px += 2) {
+        const i = (py * w + px) * 4
+        if (data[i] + data[i + 1] + data[i + 2] < 650) dark++
+        total++
+      }
+    }
+    return total > 0 ? dark / total : null
+  } catch {
+    return null
+  }
+}
+
+function looksBoldOnCanvas(
+  canvas: HTMLCanvasElement | null,
+  cssX: number,
+  cssY: number,
+  cssW: number,
+  cssH: number,
+): boolean {
+  const density = sampleInkDensity(canvas, cssX, cssY, cssW, cssH)
+  // pdf.js often exposes only synthetic font IDs for StandardFonts. When the
+  // metadata path cannot prove bold, a high ink density inside a tight text
+  // bbox is a conservative visual fallback for bold headings.
+  return density !== null && density > 0.3
+}
+
+function textEditSourceOverlapsRun(a: TextEditAnnotation, run: TextRun): boolean {
+  const x = a.origX ?? a.x
+  const y = a.origY ?? a.y
+  const w = a.origW ?? a.w
+  const h = a.origH ?? a.h
+  const ix = Math.max(0, Math.min(x + w, run.x + run.w) - Math.max(x, run.x))
+  const iy = Math.max(0, Math.min(y + h, run.y + run.h) - Math.max(y, run.y))
+  const inter = ix * iy
+  const runArea = run.w * run.h
+  if (runArea <= 0) return false
+  return inter / runArea > 0.6 || (Math.abs(x - run.x) < 2 && Math.abs(y - run.y) < 2)
+}
+
 interface PdfPageProps {
   page: PDFPageProxy
   pageIdx: number
@@ -136,6 +201,8 @@ interface PdfPageProps {
 const SNAP_DEBUG = typeof window !== 'undefined'
   && new URLSearchParams(window.location.search).get('snap') === 'debug'
 
+const MIN_REDACTION_SIZE = 4
+
 function formRowOverlapFraction(a: FormRow, b: FormRow): number {
   const ix = Math.max(0, Math.min(a.xEnd, b.xEnd) - Math.max(a.xStart, b.xStart))
   const iy = Math.max(0, Math.min(a.topY + a.height, b.topY + b.height) - Math.max(a.topY, b.topY))
@@ -143,6 +210,23 @@ function formRowOverlapFraction(a: FormRow, b: FormRow): number {
   if (inter === 0) return 0
   const minArea = Math.min((a.xEnd - a.xStart) * a.height, (b.xEnd - b.xStart) * b.height)
   return minArea > 0 ? inter / minArea : 0
+}
+
+function pdfRectToViewportBox(viewport: PageViewport, rect: number[]) {
+  const [x1, y1, x2, y2] = rect
+  const points = [
+    viewport.convertToViewportPoint(x1, y1),
+    viewport.convertToViewportPoint(x1, y2),
+    viewport.convertToViewportPoint(x2, y1),
+    viewport.convertToViewportPoint(x2, y2),
+  ]
+  const xs = points.map(([x]) => x)
+  const ys = points.map(([, y]) => y)
+  const left = Math.min(...xs)
+  const top = Math.min(...ys)
+  const right = Math.max(...xs)
+  const bottom = Math.max(...ys)
+  return { left, top, width: right - left, height: bottom - top }
 }
 
 interface FormFieldDef {
@@ -176,18 +260,22 @@ export function PdfPage({
   // Narrow subscriptions — actions are stable references in zustand, so
   // selecting them individually doesn't trigger spurious re-renders.
   const mode = usePdfStore((s) => s.mode)
-  const annotations = usePdfStore((s) => s.annotations)
+  const pageAnnots = usePdfStore(useShallow(
+    (s) => s.annotations.filter((a) => a.pageIdx === pageIdx),
+  ))
   const pendingSignature = usePdfStore((s) => s.pendingSignature)
   const pendingTextValue = usePdfStore((s) => s.pendingTextValue)
   const pendingDateMs = usePdfStore((s) => s.pendingDateMs)
   const pendingImage = usePdfStore((s) => s.pendingImage)
+  const watermark = usePdfStore((s) => s.watermark)
+  const pageNumbers = usePdfStore((s) => s.pageNumbers)
+  const pageCount = usePdfStore((s) => s.pages.length)
   const penColor = usePdfStore((s) => s.penColor)
   const penOpacity = usePdfStore((s) => s.penOpacity)
   const penWidth = usePdfStore((s) => s.penWidth)
   const addAnnotation = usePdfStore((s) => s.addAnnotation)
   const setMode = usePdfStore((s) => s.setMode)
   const setSelectedId = usePdfStore((s) => s.setSelectedId)
-  const setFormField = usePdfStore((s) => s.setFormField)
   const setPendingTextValue = usePdfStore((s) => s.setPendingTextValue)
   const setPendingDateMs = usePdfStore((s) => s.setPendingDateMs)
   const setPendingImage = usePdfStore((s) => s.setPendingImage)
@@ -198,6 +286,9 @@ export function PdfPage({
   const strokeRef = useRef<Array<[number, number]> | null>(null)
   const rafRef = useRef<number | null>(null)
   const [currentStroke, setCurrentStroke] = useState<Array<[number, number]> | null>(null)
+  const redactionStartRef = useRef<{ x: number; y: number } | null>(null)
+  const suppressNextOverlayClickRef = useRef(false)
+  const [currentRedaction, setCurrentRedaction] = useState<Pick<RedactionAnnotation, 'x' | 'y' | 'w' | 'h'> | null>(null)
 
   // Lazy rendering: only paint the canvas when the wrapper enters the
   // viewport (or its rootMargin halo). Big PDFs no longer pay 100×
@@ -209,22 +300,36 @@ export function PdfPage({
   // of a blank rectangle while pdf.js paints each canvas.
   const [painted, setPainted] = useState(false)
 
-  // Metadata effect — viewport / page info / form fields / form rows. Cheap
-  // (no canvas paint), runs once per page on mount or when cssWidth changes.
+  const shouldPreparePage = isVisible || SNAP_DEBUG
+  const shouldPrepareText = shouldPreparePage && (mode === 'text' || mode === 'edit' || SNAP_DEBUG)
+
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      const baseViewport = page.getViewport({ scale: 1 })
-      const scale = cssWidth / baseViewport.width
-      const vp = page.getViewport({ scale })
+    queueMicrotask(() => {
+      if (cancelled) return
+      setFormFields([])
+      setFormRows([])
+      setTextRuns([])
+      setHoverRow(null)
+    })
+    return () => { cancelled = true }
+  }, [page])
+
+  // Cheap layout metadata. This gives the wrapper stable dimensions quickly;
+  // PDF annotations, snap detection, and text parsing are deferred below.
+  useEffect(() => {
+    const baseViewport = page.getViewport({ scale: 1 })
+    const scale = cssWidth / baseViewport.width
+    const vp = page.getViewport({ scale })
+    let cancelled = false
+    queueMicrotask(() => {
       if (cancelled) return
       setViewport(vp)
       setPdfWidth(baseViewport.width)
       setPdfHeight(baseViewport.height)
-      // Gate `onPageInfo` on `cancelled` too — without it a stale viewport
-      // (after a rapid cssWidth change or PDF switch) would overwrite the
-      // parent's pages array.
-      if (cancelled) return
+      setFormFields([])
+      setFormRows([])
+      setHoverRow(null)
       onPageInfo({
         pageIdx,
         cssWidth: vp.width,
@@ -232,7 +337,19 @@ export function PdfPage({
         pdfWidth: baseViewport.width,
         pdfHeight: baseViewport.height,
       })
+    })
+    return () => { cancelled = true }
+  }, [page, pageIdx, cssWidth, onPageInfo])
 
+  // Form widgets + snap rows. These are useful only when the page is close
+  // enough to interact with, so avoid doing this for every page on open.
+  useEffect(() => {
+    if (!shouldPreparePage) return
+    let cancelled = false
+    ;(async () => {
+      const baseViewport = page.getViewport({ scale: 1 })
+      const scale = cssWidth / baseViewport.width
+      const vp = page.getViewport({ scale })
       // Acroform widget annotations serve double duty:
       //   1. As live <input>/<textarea> overlays so the user can fill the
       //      form directly (formFields).
@@ -241,20 +358,14 @@ export function PdfPage({
       //      Many PDFs ship like this — the visible "field" is really just
       //      a widget annotation. Without this branch the detector returns
       //      zero cells and snap appears broken to the user.
-      let widgetRows: FormRow[] = []
+      const widgetRows: FormRow[] = []
       try {
         const annots = await page.getAnnotations()
         if (cancelled) return
         const fields: FormFieldDef[] = []
         for (const a of annots) {
           if (a.subtype !== 'Widget' || !a.fieldName) continue
-          const [x1, y1, x2, y2] = a.rect
-          const [vx1, vy1] = vp.convertToViewportPoint(x1, y1)
-          const [vx2, vy2] = vp.convertToViewportPoint(x2, y2)
-          const left = Math.min(vx1, vx2)
-          const top = Math.min(vy1, vy2)
-          const width = Math.abs(vx2 - vx1)
-          const height = Math.abs(vy2 - vy1)
+          const { left, top, width, height } = pdfRectToViewportBox(vp, a.rect)
           if (a.fieldType === 'Tx') {
             fields.push({
               id: a.id, fieldName: a.fieldName, fieldType: 'Tx',
@@ -263,11 +374,12 @@ export function PdfPage({
               left, top, width, height,
             })
             // Skip checkbox-shaped (very small) widgets and zero-area ones.
-            const xStart = Math.min(x1, x2)
-            const xEnd = Math.max(x1, x2)
-            const topYpdf = baseViewport.height - Math.max(y1, y2)
-            const heightPdf = Math.abs(y2 - y1)
-            const widthPdf = xEnd - xStart
+            const pageBox = pdfRectToViewportBox(baseViewport, a.rect)
+            const xStart = pageBox.left
+            const xEnd = pageBox.left + pageBox.width
+            const topYpdf = pageBox.top
+            const heightPdf = pageBox.height
+            const widthPdf = pageBox.width
             if (widthPdf >= 20 && heightPdf >= 9) {
               widgetRows.push({ topY: topYpdf, height: heightPdf, xStart, xEnd })
             }
@@ -284,7 +396,7 @@ export function PdfPage({
       } catch { /* malformed annotations — skip */ }
 
       try {
-        const detected = await detectFormRows(page, baseViewport.height)
+        const detected = await detectFormRows(page, baseViewport)
         // Widget rects are authoritative — the form author drew them as
         // input fields. The detector's line-pair rows often span an entire
         // band (label row + field row), so when a widget falls inside a
@@ -304,9 +416,17 @@ export function PdfPage({
       } catch (err) {
         console.warn('Form-row detection failed:', err)
       }
+    })()
+    return () => { cancelled = true }
+  }, [page, cssWidth, shouldPreparePage])
 
-      // Edit mode reads text positions from pdf.js. Cheap: a single
-      // getTextContent() call per page, results memoised in state.
+  // Edit mode + snap refinement need text positions. This is more expensive
+  // than sizing, so parse it only for nearby pages when a mode can use it.
+  useEffect(() => {
+    if (!shouldPrepareText) return
+    let cancelled = false
+    ;(async () => {
+      const baseViewport = page.getViewport({ scale: 1 })
       try {
         const tc = await page.getTextContent()
         if (cancelled) return
@@ -373,7 +493,7 @@ export function PdfPage({
       }
     })()
     return () => { cancelled = true }
-  }, [page, pageIdx, cssWidth, onPageInfo])
+  }, [page, shouldPrepareText])
 
   // Visibility effect — IntersectionObserver. Once visible, stay visible:
   // the canvas is cheap to keep around relative to the cost of re-rendering
@@ -424,10 +544,35 @@ export function PdfPage({
   // Scale: CSS pixels per PDF point. The annotation coords are in PDF points,
   // so they stay pinned to the same spot when the window resizes.
   const scale = pdfWidth > 0 ? (viewport?.width ?? cssWidth) / pdfWidth : 1
-  const pageAnnots = useMemo(
-    () => annotations.filter((a) => a.pageIdx === pageIdx),
-    [annotations, pageIdx],
+  const annotationPage = useMemo<PageInfo | null>(
+    () => viewport ? {
+      pageIdx,
+      cssWidth: viewport.width,
+      cssHeight: viewport.height,
+      pdfWidth,
+      pdfHeight,
+    } : null,
+    [viewport, pageIdx, pdfWidth, pdfHeight],
   )
+
+  function pointerToPdfPoint(e: React.PointerEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    return {
+      x: Math.max(0, Math.min(pdfWidth, (e.clientX - rect.left) / scale)),
+      y: Math.max(0, Math.min(pdfHeight, (e.clientY - rect.top) / scale)),
+    }
+  }
+
+  function makeRedactionRect(start: { x: number; y: number }, end: { x: number; y: number }) {
+    const x = Math.min(start.x, end.x)
+    const y = Math.min(start.y, end.y)
+    return {
+      x,
+      y,
+      w: Math.max(0, Math.max(start.x, end.x) - x),
+      h: Math.max(0, Math.max(start.y, end.y) - y),
+    }
+  }
 
   // The detector returns each cell as the full band between two horizontal
   // rules; on forms like the IRS 1040 that band contains a small printed
@@ -440,8 +585,21 @@ export function PdfPage({
     [formRows, textRuns],
   )
 
+  useEffect(() => {
+    if ((snapEnabled && mode === 'text') || !hoverRow) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setHoverRow(null)
+    })
+    return () => { cancelled = true }
+  }, [snapEnabled, mode, hoverRow])
+
   function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
     if (e.target !== e.currentTarget) return
+    if (suppressNextOverlayClickRef.current) {
+      suppressNextOverlayClickRef.current = false
+      return
+    }
     if (mode === 'idle') return
     if (mode === 'select') { setSelectedId(null); return }
 
@@ -562,15 +720,28 @@ export function PdfPage({
       <div
         onClick={handleOverlayClick}
         onPointerDown={(e) => {
-          if (mode !== 'draw') return
           if (e.target !== e.currentTarget) return
-          e.preventDefault();
-          (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
-          const rect = e.currentTarget.getBoundingClientRect()
-          strokeRef.current = [[e.clientX - rect.left, e.clientY - rect.top]]
-          setCurrentStroke(strokeRef.current)
+          if (mode === 'draw') {
+            e.preventDefault();
+            (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
+            const rect = e.currentTarget.getBoundingClientRect()
+            strokeRef.current = [[e.clientX - rect.left, e.clientY - rect.top]]
+            setCurrentStroke(strokeRef.current)
+            return
+          }
+          if (mode === 'redact') {
+            e.preventDefault();
+            (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
+            const p = pointerToPdfPoint(e)
+            redactionStartRef.current = p
+            setCurrentRedaction({ x: p.x, y: p.y, w: 0, h: 0 })
+          }
         }}
         onPointerMove={(e) => {
+          if (mode === 'redact' && redactionStartRef.current) {
+            setCurrentRedaction(makeRedactionRect(redactionStartRef.current, pointerToPdfPoint(e)))
+            return
+          }
           if (mode === 'draw' && strokeRef.current) {
             const rect = e.currentTarget.getBoundingClientRect()
             strokeRef.current.push([e.clientX - rect.left, e.clientY - rect.top])
@@ -593,7 +764,7 @@ export function PdfPage({
           const r = findRowAt(snapRows, xPdf, yPdf)
           if (r !== hoverRow) setHoverRow(r)
         }}
-        onPointerUp={() => {
+        onPointerUp={(e) => {
           if (mode === 'draw' && strokeRef.current) {
             if (rafRef.current !== null) {
               cancelAnimationFrame(rafRef.current)
@@ -605,6 +776,26 @@ export function PdfPage({
             if (a) addAnnotation(a)
             strokeRef.current = null
             setCurrentStroke(null)
+            return
+          }
+          if (mode === 'redact' && redactionStartRef.current) {
+            const rect = makeRedactionRect(redactionStartRef.current, pointerToPdfPoint(e))
+            redactionStartRef.current = null
+            setCurrentRedaction(null)
+            if (rect.w >= MIN_REDACTION_SIZE && rect.h >= MIN_REDACTION_SIZE) {
+              const a: RedactionAnnotation = {
+                id: crypto.randomUUID(),
+                type: 'redaction',
+                pageIdx,
+                ...rect,
+                color: '#000000',
+              }
+              addAnnotation(a)
+              suppressNextOverlayClickRef.current = true
+              window.setTimeout(() => { suppressNextOverlayClickRef.current = false }, 250)
+              setMode('select')
+              setSelectedId(a.id)
+            }
           }
         }}
         onPointerCancel={() => {
@@ -613,12 +804,14 @@ export function PdfPage({
             rafRef.current = null
           }
           strokeRef.current = null
+          redactionStartRef.current = null
           if (currentStroke) setCurrentStroke(null)
+          if (currentRedaction) setCurrentRedaction(null)
         }}
         onMouseLeave={() => setHoverRow(null)}
         className={cn(
           'absolute inset-0',
-          (mode === 'text' || mode === 'signature' || mode === 'draw') ? 'cursor-crosshair' : 'cursor-default',
+          (mode === 'text' || mode === 'signature' || mode === 'draw' || mode === 'redact') ? 'cursor-crosshair' : 'cursor-default',
         )}
         style={{ lineHeight: 'normal' }}
       >
@@ -650,8 +843,14 @@ export function PdfPage({
         )}
 
         {/* Snap preview while hovering in Add text mode */}
-        {hoverRow && mode === 'text' && (
+        {hoverRow && mode === 'text' && snapEnabled && (
           <div
+            data-testid="snap-hover-preview"
+            data-snap-x={hoverRow.xStart}
+            data-snap-y={hoverRow.topY}
+            data-snap-w={hoverRow.xEnd - hoverRow.xStart}
+            data-snap-h={hoverRow.height}
+            data-snap-scale={scale}
             className="pointer-events-none absolute rounded-sm border border-primary/60 bg-primary/10"
             style={{
               left: hoverRow.xStart * scale,
@@ -659,6 +858,28 @@ export function PdfPage({
               width: (hoverRow.xEnd - hoverRow.xStart) * scale,
               height: hoverRow.height * scale,
             }}
+          />
+        )}
+
+        {viewport && watermarkIsVisible(watermark) && (
+          <WatermarkPreview
+            text={watermark.text}
+            color={watermark.color}
+            opacity={watermark.opacity}
+            rotation={watermark.rotation}
+            fontSize={watermark.fontSize}
+            scale={scale}
+            pageWidth={viewport.width}
+          />
+        )}
+
+        {viewport && pageNumbersAreVisible(pageNumbers) && (
+          <PageNumberPreview
+            pageNumbers={pageNumbers}
+            pageIdx={pageIdx}
+            totalPages={pageCount || 1}
+            scale={scale}
+            pageWidth={viewport.width}
           />
         )}
 
@@ -680,13 +901,25 @@ export function PdfPage({
             />
           </svg>
         )}
+        {currentRedaction && viewport && (
+          <div
+            data-testid="redaction-draft"
+            className="pointer-events-none absolute outline outline-1 outline-white/80"
+            style={{
+              left: currentRedaction.x * scale,
+              top: currentRedaction.y * scale,
+              width: currentRedaction.w * scale,
+              height: currentRedaction.h * scale,
+              background: '#000000',
+            }}
+          />
+        )}
         {/* Edit-text mode — click-target per text run. Filter out runs that
             already have a textEdit annotation overlapping them so the user
             doesn't accidentally stack edits on the same word. */}
         {viewport && mode === 'edit' && textRuns.map((run, i) => {
           const alreadyEdited = pageAnnots.some(
-            (a) => a.type === 'textEdit'
-              && Math.abs(a.x - run.x) < 2 && Math.abs(a.y - run.y) < 2,
+            (a) => a.type === 'textEdit' && textEditSourceOverlapsRun(a, run),
           )
           if (alreadyEdited) return null
           return (
@@ -734,7 +967,12 @@ export function PdfPage({
                   .replace(/</g, '&lt;')
                   .replace(/>/g, '&gt;')
                 if (run.italic) data = `<i>${data}</i>`
-                if (run.bold) data = `<b>${data}</b>`
+                const inferredBold = run.bold || looksBoldOnCanvas(
+                  canvasRef.current,
+                  run.x * scale, run.y * scale,
+                  run.w * scale, run.h * scale,
+                )
+                if (inferredBold) data = `<b>${data}</b>`
                 const a: TextEditAnnotation = {
                   id: crypto.randomUUID(),
                   type: 'textEdit',
@@ -804,7 +1042,7 @@ export function PdfPage({
         })}
 
         {viewport && formFields.map((f) => (
-          <FormField
+          <ConnectedFormField
             key={f.id}
             field={f}
             // Outside of plain idle mode (filling the form), widgets defer to
@@ -812,21 +1050,14 @@ export function PdfPage({
             // a text box, drawing, etc. Stays visible but doesn't capture
             // clicks meant for the overlay below.
             disabled={mode !== 'idle'}
-            onChange={(v) => setFormField(f.fieldName, v)}
           />
         ))}
 
-        {viewport && pageAnnots.map((a) => (
+        {annotationPage && pageAnnots.map((a) => (
           <Annotation
             key={a.id}
             annotation={a}
-            page={{
-              pageIdx,
-              cssWidth: viewport.width,
-              cssHeight: viewport.height,
-              pdfWidth,
-              pdfHeight,
-            }}
+            page={annotationPage}
             scale={scale}
           />
         ))}
@@ -835,11 +1066,114 @@ export function PdfPage({
   )
 }
 
-function FormField({
-  field, disabled, onChange,
+function ConnectedFormField({
+  field, disabled,
 }: {
   field: FormFieldDef
   disabled: boolean
+}) {
+  const value = usePdfStore((s) => s.formFieldEdits.get(field.fieldName) ?? field.initialValue)
+  const setFormField = usePdfStore((s) => s.setFormField)
+  return (
+    <FormField
+      field={field}
+      disabled={disabled}
+      value={value}
+      onChange={(v) => setFormField(field.fieldName, v)}
+    />
+  )
+}
+
+function WatermarkPreview({
+  text,
+  color,
+  opacity,
+  rotation,
+  fontSize,
+  scale,
+  pageWidth,
+}: {
+  text: string
+  color: string
+  opacity: number
+  rotation: number
+  fontSize: number
+  scale: number
+  pageWidth: number
+}) {
+  return (
+    <div
+      data-testid="watermark-preview"
+      className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden"
+      aria-hidden="true"
+    >
+      <div
+        className="max-w-[90%] overflow-hidden text-ellipsis whitespace-nowrap font-bold"
+        style={{
+          color,
+          opacity,
+          transform: `rotate(${rotation}deg)`,
+          fontFamily: FONT_FAMILIES.helvetica.css,
+          fontSize: Math.min(fontSize * scale, pageWidth * 0.22),
+          lineHeight: 1,
+        }}
+      >
+        {text}
+      </div>
+    </div>
+  )
+}
+
+function PageNumberPreview({
+  pageNumbers,
+  pageIdx,
+  totalPages,
+  scale,
+  pageWidth,
+}: {
+  pageNumbers: PageNumberSettings
+  pageIdx: number
+  totalPages: number
+  scale: number
+  pageWidth: number
+}) {
+  const text = formatPageNumber(pageNumbers, pageIdx, totalPages)
+  const fontSize = pageNumbers.fontSize * scale
+  const margin = pageNumbers.margin * scale
+  const horizontal = pageNumbers.position.endsWith('left')
+    ? { left: margin }
+    : pageNumbers.position.endsWith('right')
+      ? { right: margin }
+      : { left: 0, right: 0, textAlign: 'center' as const }
+  const vertical = pageNumbers.position.startsWith('top')
+    ? { top: margin }
+    : { bottom: Math.max(0, margin - fontSize * 0.2) }
+  return (
+    <div
+      data-testid="page-number-preview"
+      className="pointer-events-none absolute z-10 font-normal leading-none"
+      aria-hidden="true"
+      style={{
+        ...horizontal,
+        ...vertical,
+        maxWidth: pageWidth - margin * 2,
+        color: pageNumbers.color,
+        fontFamily: FONT_FAMILIES.helvetica.css,
+        fontSize,
+        lineHeight: 1,
+      }}
+    >
+      <span className="inline-block max-w-full truncate">{text}</span>
+    </div>
+  )
+}
+
+function FormField({
+  field, disabled, value, onChange,
+}: {
+  field: FormFieldDef
+  disabled: boolean
+  value: string | boolean
   onChange: (v: string | boolean) => void
 }) {
   const f = FONT_FAMILIES.helvetica
@@ -860,8 +1194,9 @@ function FormField({
     return (
       <div className={cn('absolute border', disabled && 'pointer-events-none opacity-50')} style={wrapStyle}>
         <input
+          data-form-field-name={field.fieldName}
           type="checkbox"
-          defaultChecked={field.initialValue as boolean}
+          checked={Boolean(value)}
           onChange={(e) => onChange(e.target.checked)}
           className="h-full w-full"
         />
@@ -872,7 +1207,8 @@ function FormField({
     return (
       <div className={cn('absolute border', disabled && 'pointer-events-none opacity-50')} style={wrapStyle}>
         <textarea
-          defaultValue={field.initialValue as string}
+          data-form-field-name={field.fieldName}
+          value={String(value)}
           onChange={(e) => onChange(e.target.value)}
           className="h-full w-full border-none bg-transparent p-1 outline-none"
           style={fontStyle}
@@ -883,8 +1219,9 @@ function FormField({
   return (
     <div className={cn('absolute border', disabled && 'pointer-events-none opacity-50')} style={wrapStyle}>
       <input
+        data-form-field-name={field.fieldName}
         type="text"
-        defaultValue={field.initialValue as string}
+        value={String(value)}
         onChange={(e) => onChange(e.target.value)}
         className="h-full w-full border-none bg-transparent px-1 outline-none"
         style={fontStyle}

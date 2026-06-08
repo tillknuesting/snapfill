@@ -2,10 +2,12 @@
 // with the user's annotations + form-field edits so they can pick up where
 // they left off. Everything is local to the browser; no network involved.
 
-import type { Annotation } from '@/types'
+import type { Annotation, PageNumberSettings, WatermarkSettings } from '@/types'
+import { DEFAULT_WATERMARK, normalizeWatermark } from './watermark'
+import { DEFAULT_PAGE_NUMBERS, normalizePageNumbers } from './pageNumbers'
 
 const DB_NAME = 'pdfhelper'
-const DB_VERSION = 2
+const DB_VERSION = 5
 const STORE = 'recent'
 const MAX_RECENT = 20
 
@@ -17,8 +19,11 @@ interface RecentRecord {
   size: number
   openedAt: number
   bytes: Uint8Array
+  contentHash: string
   annotations: Annotation[]
   formFieldEdits: SerializedFormFields
+  watermark: WatermarkSettings
+  pageNumbers: PageNumberSettings
 }
 
 export interface RecentFileMeta {
@@ -34,6 +39,8 @@ export interface RecentFileFull {
   bytes: Uint8Array
   annotations: Annotation[]
   formFieldEdits: SerializedFormFields
+  watermark: WatermarkSettings
+  pageNumbers: PageNumberSettings
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -46,7 +53,11 @@ function openDb(): Promise<IDBDatabase> {
         return
       }
       // v1 → v2 migration: backfill annotations / formFieldEdits on existing rows.
-      if ((e.oldVersion ?? 0) < 2) {
+      // v2 → v3 migration: backfill content fingerprints so distinct PDFs
+      // with the same filename and byte length do not share cached edits.
+      // v3 → v4 migration: add document-level watermark settings.
+      // v4 → v5 migration: add document-level page numbering settings.
+      if ((e.oldVersion ?? 0) < 5) {
         const tx = req.transaction
         if (!tx) return
         const store = tx.objectStore(STORE)
@@ -55,14 +66,18 @@ function openDb(): Promise<IDBDatabase> {
           const c = cursor.result
           if (!c) return
           const r = c.value as Partial<RecentRecord>
+          const bytes = normalizeBytes(r.bytes)
           const next: RecentRecord = {
             id: r.id ?? crypto.randomUUID(),
             name: r.name ?? 'Untitled.pdf',
-            size: r.size ?? 0,
+            size: r.size ?? bytes.byteLength,
             openedAt: r.openedAt ?? Date.now(),
-            bytes: r.bytes ?? new Uint8Array(),
+            bytes,
+            contentHash: r.contentHash ?? fingerprintBytes(bytes),
             annotations: r.annotations ?? [],
             formFieldEdits: r.formFieldEdits ?? [],
+            watermark: normalizeWatermark(r.watermark),
+            pageNumbers: normalizePageNumbers(r.pageNumbers),
           }
           c.update(next)
           c.continue()
@@ -72,6 +87,28 @@ function openDb(): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
+}
+
+function normalizeBytes(bytes: Uint8Array | ArrayBuffer | undefined): Uint8Array {
+  if (!bytes) return new Uint8Array()
+  return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+}
+
+function fingerprintBytes(bytes: Uint8Array): string {
+  // Two independent 32-bit FNV-1a passes over the full file. This is not a
+  // security primitive; it is a stable local identity key for recent-file rows.
+  let h1 = 0x811c9dc5
+  let h2 = 0x811c9dc5 ^ bytes.byteLength
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i]
+    h1 ^= b
+    h1 = Math.imul(h1, 0x01000193)
+    h2 ^= b ^ (i & 0xff)
+    h2 = Math.imul(h2, 0x01000193)
+  }
+  const part1 = (h1 >>> 0).toString(16).padStart(8, '0')
+  const part2 = (h2 >>> 0).toString(16).padStart(8, '0')
+  return `${bytes.byteLength}:${part1}${part2}`
 }
 
 function txDone(tx: IDBTransaction): Promise<void> {
@@ -90,15 +127,16 @@ function reqDone<T>(req: IDBRequest<T>): Promise<T> {
 }
 
 // Add (or refresh) a PDF in the cache. Returns the record's id so the caller
-// can reference it for subsequent saves. If the same file (name + size) is
-// already there, its timestamp is bumped and existing annotations preserved.
+// can reference it for subsequent saves. If the same file (name + full-content
+// fingerprint) is already there, its timestamp is bumped and edits preserved.
 export async function addRecentFile(name: string, bytes: Uint8Array): Promise<string> {
   try {
+    const contentHash = fingerprintBytes(bytes)
     const db = await openDb()
     const tx = db.transaction(STORE, 'readwrite')
     const store = tx.objectStore(STORE)
     const all = (await reqDone(store.getAll())) as RecentRecord[]
-    const dupe = all.find((e) => e.name === name && e.size === bytes.byteLength)
+    const dupe = all.find((e) => e.name === name && e.contentHash === contentHash)
     if (dupe) {
       const next: RecentRecord = { ...dupe, openedAt: Date.now() }
       store.put(next)
@@ -116,8 +154,11 @@ export async function addRecentFile(name: string, bytes: Uint8Array): Promise<st
       size: bytes.byteLength,
       openedAt: Date.now(),
       bytes,
+      contentHash,
       annotations: [],
       formFieldEdits: [],
+      watermark: DEFAULT_WATERMARK,
+      pageNumbers: DEFAULT_PAGE_NUMBERS,
     }
     store.put(record)
     await txDone(tx)
@@ -133,7 +174,7 @@ export async function addRecentFile(name: string, bytes: Uint8Array): Promise<st
 // prepends another PDF — `size` should be passed alongside any new bytes.
 export async function updateRecentFile(
   id: string,
-  patch: Partial<Pick<RecentRecord, 'annotations' | 'formFieldEdits' | 'openedAt' | 'bytes' | 'size'>>,
+  patch: Partial<Pick<RecentRecord, 'annotations' | 'formFieldEdits' | 'watermark' | 'pageNumbers' | 'openedAt' | 'bytes' | 'size'>>,
 ): Promise<void> {
   try {
     const db = await openDb()
@@ -141,7 +182,18 @@ export async function updateRecentFile(
     const store = tx.objectStore(STORE)
     const cur = (await reqDone(store.get(id))) as RecentRecord | undefined
     if (!cur) return
-    store.put({ ...cur, ...patch })
+    const bytes = patch.bytes ? normalizeBytes(patch.bytes) : undefined
+    store.put({
+      ...cur,
+      ...patch,
+      watermark: patch.watermark ? normalizeWatermark(patch.watermark) : normalizeWatermark(cur.watermark),
+      pageNumbers: patch.pageNumbers ? normalizePageNumbers(patch.pageNumbers) : normalizePageNumbers(cur.pageNumbers),
+      ...(bytes ? {
+        bytes,
+        size: patch.size ?? bytes.byteLength,
+        contentHash: fingerprintBytes(bytes),
+      } : {}),
+    })
     await txDone(tx)
   } catch (err) {
     console.warn('updateRecentFile failed', err)
@@ -194,6 +246,8 @@ export async function loadRecentFileFull(id: string): Promise<RecentFileFull | n
       bytes: rec.bytes,
       annotations: rec.annotations ?? [],
       formFieldEdits: rec.formFieldEdits ?? [],
+      watermark: normalizeWatermark(rec.watermark),
+      pageNumbers: normalizePageNumbers(rec.pageNumbers),
     }
   } catch (err) {
     console.warn('loadRecentFileFull failed', err)

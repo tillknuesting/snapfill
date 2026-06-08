@@ -1,6 +1,8 @@
 import { create } from 'zustand'
-import type { Annotation, Mode, PageInfo } from '@/types'
+import type { Annotation, Mode, PageInfo, PageNumberSettings, WatermarkSettings } from '@/types'
 import { detectLang, persistLang, type Lang } from '@/utils/i18n'
+import { DEFAULT_WATERMARK, normalizeWatermark } from '@/utils/watermark'
+import { DEFAULT_PAGE_NUMBERS, normalizePageNumbers } from '@/utils/pageNumbers'
 
 interface PdfState {
   pdfBytes: Uint8Array | null
@@ -26,6 +28,8 @@ interface PdfState {
   penWidth: number
   zoom: number
   formFieldEdits: Map<string, string | boolean>
+  watermark: WatermarkSettings
+  pageNumbers: PageNumberSettings
 
   // Undo/redo history. Each entry is a snapshot of `annotations` *after* a
   // user action; in-memory only (session-scoped). historyIdx points at the
@@ -34,6 +38,7 @@ interface PdfState {
   historyIdx: number
 
   setPdf: (bytes: Uint8Array, name: string, recentId?: string | null) => void
+  setRecentId: (id: string | null) => void
   // Tear down the current document — pdfBytes back to null brings the
   // empty state back. Used by the error UI in PdfViewer when a PDF fails
   // to parse so the user can recover without reloading the page.
@@ -41,6 +46,8 @@ interface PdfState {
   loadFromRecent: (
     bytes: Uint8Array, name: string, id: string,
     annotations: Annotation[], formFieldEdits: Array<[string, string | boolean]>,
+    watermark?: WatermarkSettings,
+    pageNumbers?: PageNumberSettings,
   ) => void
   // Replace the loaded PDF bytes after a merge. Annotations stay; if the
   // merge inserted pages at the front, every annotation's pageIdx must be
@@ -57,6 +64,12 @@ interface PdfState {
   // doesn't pop you back to a state where annotations were on the wrong
   // page numbers.
   reorderPages: (bytes: Uint8Array, newOrder: number[]) => void
+  // Replace the loaded PDF bytes after a single-page rotation. Annotations stay
+  // attached to their page index; pages are reparsed from the new bytes.
+  rotatePage: (bytes: Uint8Array) => void
+  // Replace the loaded PDF bytes after deleting one page. Annotations on the
+  // removed page are dropped; later annotations shift down one page.
+  deletePage: (bytes: Uint8Array, pageIdx: number) => void
   setPages: (pages: PageInfo[]) => void
   setMode: (mode: Mode) => void
   setSelectedId: (id: string | null) => void
@@ -78,6 +91,8 @@ interface PdfState {
   setPenWidth: (width: number) => void
   setZoom: (z: number) => void
   setFormField: (name: string, value: string | boolean) => void
+  setWatermark: (patch: Partial<WatermarkSettings>) => void
+  setPageNumbers: (patch: Partial<PageNumberSettings>) => void
 
   // UI language (auto-detected on first load, manual override stored in
   // localStorage via persistLang).
@@ -105,13 +120,15 @@ export const usePdfStore = create<PdfState>((set, get) => ({
   penWidth: 2,
   zoom: 1,
   formFieldEdits: new Map(),
+  watermark: DEFAULT_WATERMARK,
+  pageNumbers: DEFAULT_PAGE_NUMBERS,
   history: [[]],
   historyIdx: 0,
 
   closePdf: () =>
     set({
       pdfBytes: null, fileName: '', recentId: null,
-      annotations: [], pages: [], formFieldEdits: new Map(),
+      annotations: [], pages: [], formFieldEdits: new Map(), watermark: DEFAULT_WATERMARK, pageNumbers: DEFAULT_PAGE_NUMBERS,
       selectedId: null, mode: 'idle',
       history: [[]], historyIdx: 0,
     }),
@@ -119,16 +136,21 @@ export const usePdfStore = create<PdfState>((set, get) => ({
   setPdf: (pdfBytes, fileName, recentId = null) =>
     set({
       pdfBytes, fileName, recentId,
-      annotations: [], formFieldEdits: new Map(),
+      annotations: [], pages: [], formFieldEdits: new Map(), watermark: DEFAULT_WATERMARK, pageNumbers: DEFAULT_PAGE_NUMBERS,
       selectedId: null, mode: 'idle',
       history: [[]], historyIdx: 0,
     }),
 
-  loadFromRecent: (pdfBytes, fileName, recentId, annotations, formFieldEdits) =>
+  setRecentId: (recentId) => set({ recentId }),
+
+  loadFromRecent: (pdfBytes, fileName, recentId, annotations, formFieldEdits, watermark, pageNumbers) =>
     set({
       pdfBytes, fileName, recentId,
       annotations,
+      pages: [],
       formFieldEdits: new Map(formFieldEdits),
+      watermark: normalizeWatermark(watermark),
+      pageNumbers: normalizePageNumbers(pageNumbers),
       selectedId: null, mode: 'idle',
       // Seed the history with the loaded snapshot so the first user action
       // creates a redo target above it.
@@ -170,6 +192,33 @@ export const usePdfStore = create<PdfState>((set, get) => ({
         history: [remapped],
         historyIdx: 0,
         selectedId: null, mode: 'idle',
+      }
+    }),
+
+  rotatePage: (pdfBytes) =>
+    set((s) => ({
+      pdfBytes,
+      pages: [],
+      annotations: s.annotations,
+      history: [s.annotations],
+      historyIdx: 0,
+      selectedId: null,
+      mode: 'idle',
+    })),
+
+  deletePage: (pdfBytes, pageIdx) =>
+    set((s) => {
+      const remapped = s.annotations
+        .filter((a) => a.pageIdx !== pageIdx)
+        .map((a) => (a.pageIdx > pageIdx ? { ...a, pageIdx: a.pageIdx - 1 } : a))
+      return {
+        pdfBytes,
+        pages: [],
+        annotations: remapped,
+        history: [remapped],
+        historyIdx: 0,
+        selectedId: null,
+        mode: 'idle',
       }
     }),
 
@@ -241,6 +290,10 @@ export const usePdfStore = create<PdfState>((set, get) => ({
       next.set(name, value)
       return { formFieldEdits: next }
     }),
+  setWatermark: (patch) =>
+    set((s) => ({ watermark: normalizeWatermark({ ...s.watermark, ...patch }) })),
+  setPageNumbers: (patch) =>
+    set((s) => ({ pageNumbers: normalizePageNumbers({ ...s.pageNumbers, ...patch }) })),
 
   lang: detectLang(),
   setLang: (lang) => {

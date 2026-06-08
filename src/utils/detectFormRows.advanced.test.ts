@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 // pdf.js requires a real browser (DOMMatrix etc.); we stub the module and
 // only set the constants we need.
-vi.mock('pdfjs-dist', () => ({ OPS: { constructPath: 91 } }))
+const OPS = vi.hoisted(() => ({ constructPath: 91, save: 92, restore: 93, transform: 94 }))
+
+vi.mock('pdfjs-dist', () => ({ OPS }))
 
 import { detectFormRows, findRowAt, type FormRow } from './detectFormRows'
 import type { PDFPageProxy } from 'pdfjs-dist'
@@ -12,10 +14,17 @@ import type { PDFPageProxy } from 'pdfjs-dist'
 function fakePage(paths: Array<[number, number, number, number]>): PDFPageProxy {
   return {
     getOperatorList: async () => ({
-      fnArray: paths.map(() => 91),
+      fnArray: paths.map(() => OPS.constructPath),
       argsArray: paths.map((mm) => [null, null, new Float32Array(mm)]),
     }),
   } as unknown as PDFPageProxy
+}
+
+function fakeOpPage(
+  fnArray: number[],
+  argsArray: unknown[],
+): PDFPageProxy {
+  return { getOperatorList: async () => ({ fnArray, argsArray }) } as unknown as PDFPageProxy
 }
 
 // Convenience builders. PDF coords are bottom-left origin; our `topY` field is
@@ -277,6 +286,37 @@ describe('detectFormRows — coordinate-system handling', () => {
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ topY: 780, height: 20 })
+  })
+
+  it('uses viewport conversion when a viewport-like coordinate mapper is passed', async () => {
+    const viewport = {
+      width: 700,
+      height: 700,
+      convertToViewportPoint: (x: number, y: number): [number, number] => [x - 100, 700 - y],
+    }
+    const rows = await detectFormRows(
+      fakePage([[150, 650, 300, 670]]),
+      viewport,
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ topY: 30, height: 20, xStart: 50, xEnd: 200 })
+  })
+
+  it('applies the active transform matrix before classifying path bboxes', async () => {
+    const rows = await detectFormRows(
+      fakeOpPage(
+        [OPS.save, OPS.transform, OPS.constructPath, OPS.restore],
+        [
+          [],
+          [1, 0, 0, 1, 150, 650],
+          [null, null, new Float32Array([0, 0, 120, 14])],
+          [],
+        ],
+      ),
+      PAGE_H,
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ topY: 136, height: 14, xStart: 150, xEnd: 270 })
   })
 })
 

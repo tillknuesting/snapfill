@@ -167,13 +167,10 @@ function RecentRow({
   onRemove: () => void
 }) {
   const t = useT()
-  const [hovered, setHovered] = useState(false)
   return (
     <li
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       className={cn(
-        'group relative cursor-pointer border-l-2 border-transparent px-3 py-2 hover:bg-accent',
+        'group relative cursor-pointer border-l-2 border-transparent py-2 pe-9 ps-3 hover:bg-accent',
         active && 'border-l-primary bg-accent/60',
       )}
     >
@@ -190,17 +187,15 @@ function RecentRow({
           </span>
         </span>
       </button>
-      {hovered && (
-        <button
-          type="button"
-          aria-label={`${t('rs.remove')} ${item.name}`}
-          onClick={(e) => { e.stopPropagation(); onRemove() }}
-          className="absolute end-2 top-2 flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-          title={t('rs.remove')}
-        >
-          {active ? <Trash2 className="size-3.5" /> : <X className="size-3.5" />}
-        </button>
-      )}
+      <button
+        type="button"
+        aria-label={`${t('rs.remove')} ${item.name}`}
+        onClick={(e) => { e.stopPropagation(); onRemove() }}
+        className="absolute end-2 top-2 flex size-6 items-center justify-center rounded text-muted-foreground opacity-70 hover:bg-destructive/10 hover:text-destructive hover:opacity-100 focus-visible:opacity-100"
+        title={t('rs.remove')}
+      >
+        <Trash2 className="size-3.5" />
+      </button>
     </li>
   )
 }

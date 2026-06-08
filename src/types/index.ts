@@ -1,6 +1,37 @@
-export type Mode = 'idle' | 'text' | 'signature' | 'select' | 'draw' | 'image' | 'edit'
+export type Mode = 'idle' | 'text' | 'signature' | 'select' | 'draw' | 'image' | 'edit' | 'redact'
 
 export type FontFamily = 'helvetica' | 'times' | 'courier'
+
+export type CompressionLevel = 'low' | 'mid' | 'high'
+
+export interface WatermarkSettings {
+  enabled: boolean
+  text: string
+  fontSize: number
+  opacity: number
+  rotation: number
+  color: string
+}
+
+export type PageNumberPosition =
+  | 'bottom-center'
+  | 'bottom-right'
+  | 'bottom-left'
+  | 'top-center'
+  | 'top-right'
+  | 'top-left'
+
+export type PageNumberFormat = 'page' | 'page-of-total' | 'number'
+
+export interface PageNumberSettings {
+  enabled: boolean
+  format: PageNumberFormat
+  position: PageNumberPosition
+  startAt: number
+  fontSize: number
+  color: string
+  margin: number
+}
 
 // Coordinates and sizes are stored in PDF page units (points), not CSS pixels.
 // This way annotations stay pinned when the viewer is resized.
@@ -50,6 +81,11 @@ export interface ImageAnnotation extends BaseAnnotation {
   mime: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
 }
 
+export interface RedactionAnnotation extends BaseAnnotation {
+  type: 'redaction'
+  color: string // hex; rendered as an opaque rectangle in the exported PDF
+}
+
 // "Edit existing text" annotation — replaces a text run already drawn in the
 // source PDF. Visually it covers the original glyphs with a white rectangle
 // and renders the user's replacement on top in a matched font; in the export
@@ -91,7 +127,13 @@ export interface TextEditAnnotation extends BaseAnnotation {
   originalFontName?: string
 }
 
-export type Annotation = TextAnnotation | SignatureAnnotation | DrawingAnnotation | ImageAnnotation | TextEditAnnotation
+export type Annotation =
+  | TextAnnotation
+  | SignatureAnnotation
+  | DrawingAnnotation
+  | ImageAnnotation
+  | RedactionAnnotation
+  | TextEditAnnotation
 
 export interface PageInfo {
   pageIdx: number

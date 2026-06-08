@@ -7,9 +7,17 @@ export type Theme =
   | 'light'
   | 'dark'
   | 'sepia'
+  | 'solarized-light'
+  | 'gruvbox-light'
+  | 'catppuccin-latte'
+  | 'github-light'
   | 'hc'
   | 'solarized'
   | 'dracula'
+  | 'nord'
+  | 'gruvbox'
+  | 'catppuccin'
+  | 'tokyo'
 
 export interface ThemeMeta {
   code: Theme
@@ -26,9 +34,17 @@ export const THEMES: ThemeMeta[] = [
   { code: 'light',     labelKey: 'theme.light',     cssClass: '',                isDark: false },
   { code: 'dark',      labelKey: 'theme.dark',      cssClass: '',                isDark: true  },
   { code: 'sepia',     labelKey: 'theme.sepia',     cssClass: 'theme-sepia',     isDark: false },
+  { code: 'solarized-light', labelKey: 'theme.solarized_light', cssClass: 'theme-solarized-light', isDark: false },
+  { code: 'gruvbox-light', labelKey: 'theme.gruvbox_light', cssClass: 'theme-gruvbox-light', isDark: false },
+  { code: 'catppuccin-latte', labelKey: 'theme.catppuccin_latte', cssClass: 'theme-catppuccin-latte', isDark: false },
+  { code: 'github-light', labelKey: 'theme.github_light', cssClass: 'theme-github-light', isDark: false },
   { code: 'hc',        labelKey: 'theme.hc',        cssClass: 'theme-hc',        isDark: true  },
   { code: 'solarized', labelKey: 'theme.solarized', cssClass: 'theme-solarized', isDark: true  },
   { code: 'dracula',   labelKey: 'theme.dracula',   cssClass: 'theme-dracula',   isDark: true  },
+  { code: 'nord',      labelKey: 'theme.nord',      cssClass: 'theme-nord',      isDark: true  },
+  { code: 'gruvbox',   labelKey: 'theme.gruvbox',   cssClass: 'theme-gruvbox',   isDark: true  },
+  { code: 'catppuccin', labelKey: 'theme.catppuccin', cssClass: 'theme-catppuccin', isDark: true },
+  { code: 'tokyo',     labelKey: 'theme.tokyo',     cssClass: 'theme-tokyo',     isDark: true  },
 ]
 
 const STORAGE_KEY = 'pdfhelper.theme'

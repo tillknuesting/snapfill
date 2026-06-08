@@ -4,13 +4,17 @@ import userEvent from '@testing-library/user-event'
 import { Toolbar } from './Toolbar'
 import { usePdfStore } from '@/store/usePdfStore'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { DEFAULT_PAGE_NUMBERS } from '@/utils/pageNumbers'
+import { DEFAULT_WATERMARK } from '@/utils/watermark'
 
 function reset() {
   usePdfStore.setState({
     pdfBytes: null, fileName: '', annotations: [], pages: [], mode: 'idle',
     selectedId: null, pendingSignature: null, pendingTextValue: null,
-    pendingDateMs: null, sigColor: '#0a1f3d', penColor: '#0a1f3d',
+    pendingDateMs: null, pendingImage: null, sigColor: '#0a1f3d', penColor: '#0a1f3d',
     penOpacity: 1, penWidth: 2, zoom: 1, formFieldEdits: new Map(),
+    watermark: DEFAULT_WATERMARK, pageNumbers: DEFAULT_PAGE_NUMBERS,
+    lang: 'en',
   })
 }
 
@@ -27,7 +31,10 @@ function renderToolbar(props: Partial<Parameters<typeof Toolbar>[0]> = {}, opts:
     onMergePdf: vi.fn().mockResolvedValue(undefined),
     onOpenSignature: vi.fn(),
     onOpenProfile: vi.fn(),
+    onOpenHelp: vi.fn(),
+    onOpenPages: vi.fn(),
     onDownload: vi.fn(),
+    hasMultiplePages: false,
     textFamily: 'helvetica' as const,
     setTextFamily: vi.fn(),
     textSize: 14,
@@ -52,6 +59,7 @@ describe('Toolbar — disabled state', () => {
   it('disables mode buttons when no PDF is loaded', () => {
     renderToolbar()
     expect(screen.getByRole('button', { name: /add text/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /redact/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /add signature/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /select/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /draw/i })).toBeDisabled()
@@ -61,6 +69,7 @@ describe('Toolbar — disabled state', () => {
   it('enables them once a PDF is loaded', () => {
     renderToolbar({}, { pdfLoaded: true })
     expect(screen.getByRole('button', { name: /add text/i })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /redact/i })).not.toBeDisabled()
     expect(screen.getByRole('button', { name: /select/i })).not.toBeDisabled()
     expect(screen.getByRole('button', { name: /^download$/i })).not.toBeDisabled()
   })
@@ -91,6 +100,12 @@ describe('Toolbar — mode toggling', () => {
     renderToolbar({}, { pdfLoaded: true })
     await userEvent.click(screen.getByRole('button', { name: /^draw$/i }))
     expect(usePdfStore.getState().mode).toBe('draw')
+  })
+
+  it('Redact toggles the redaction mode', async () => {
+    renderToolbar({}, { pdfLoaded: true })
+    await userEvent.click(screen.getByRole('button', { name: /^redact$/i }))
+    expect(usePdfStore.getState().mode).toBe('redact')
   })
 
   it('Add signature calls onOpenSignature instead of switching mode directly', async () => {

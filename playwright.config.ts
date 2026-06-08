@@ -23,7 +23,8 @@ export default defineConfig({
     // Headless chromium only — keeps the install footprint small.
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, grepInvert: /@mobile/ },
+    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] }, grep: /@mobile/ },
   ],
   webServer: {
     command: 'npm run dev',

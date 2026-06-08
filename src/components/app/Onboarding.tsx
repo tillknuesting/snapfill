@@ -4,15 +4,15 @@ import { Button } from '@/components/ui/button'
 import { usePdfStore } from '@/store/usePdfStore'
 import { useT } from '@/utils/useT'
 
-// First-visit guided tour. Steps adapt to whether a PDF is open: the empty
-// state gets one welcome step, then once a fixture or upload lands we walk
-// through the high-impact toolbar buttons. The tour is dismissable at any
-// point and never reappears once dismissed (or completed).
+// First-visit guided tour. Steps adapt to whether a PDF is open, but the
+// post-open walkthrough stays intentionally short; the Help button can replay
+// it on demand.
 
 // Versioned storage key. Bump the suffix when the tour content changes
 // substantively — that way users who already dismissed an older version
 // see the new walkthrough once, instead of being permanently locked out.
-// v2: 16-step rewrite covering snap, image, merge, reorder, undo, zoom.
+// v2: Current storage marker. Kept stable so existing dismissed tours stay
+// dismissed while the walkthrough content gets shorter.
 const STORAGE_KEY = 'pdfhelper.onboardingDone.v2'
 
 interface Step {
@@ -32,27 +32,13 @@ const PRE_OPEN_STEPS: Step[] = [
 // Targets keyed off the (translated) aria-label means we have to look up the
 // label per current language. Build the selector with the matching string.
 //
-// The order tracks a real workflow: most users hit Add Text first, then move
-// outward into the more specialised tools, then settings, then Download.
-// Reorder sits without a clear target (the thumbnail rail only shows on
-// viewports ≥ lg + multi-page docs); we centre that card.
+// The order tracks a real workflow and deliberately limits the tour to the
+// decisions users need first. Secondary tools remain discoverable in Help.
 function buildPostOpenSteps(t: (k: string) => string): Step[] {
   return [
     { target: `button[aria-label="${t('tb.add_text')}"]`,      titleKey: 'ob.add_text.title', bodyKey: 'ob.add_text.body' },
-    { target: null,                                            titleKey: 'ob.snap.title',     bodyKey: 'ob.snap.body' },
-    { target: `button[aria-label="${t('tb.edit_text')}"]`,     titleKey: 'ob.edit.title',     bodyKey: 'ob.edit.body' },
-    { target: `button[aria-label="${t('tb.insert_date')}"]`,   titleKey: 'ob.date.title',     bodyKey: 'ob.date.body' },
-    { target: `button[aria-label="${t('tb.profile')}"]`,       titleKey: 'ob.profile.title',  bodyKey: 'ob.profile.body' },
     { target: `button[aria-label="${t('tb.add_signature')}"]`, titleKey: 'ob.sign.title',     bodyKey: 'ob.sign.body' },
-    { target: `button[aria-label="${t('tb.draw')}"]`,          titleKey: 'ob.draw.title',     bodyKey: 'ob.draw.body' },
-    { target: `button[aria-label="${t('tb.add_image')}"]`,     titleKey: 'ob.image.title',    bodyKey: 'ob.image.body' },
-    { target: `button[aria-label="${t('tb.select')}"]`,        titleKey: 'ob.select.title',   bodyKey: 'ob.select.body' },
-    { target: `button[aria-label="${t('tb.merge_pdf')}"]`,     titleKey: 'ob.merge.title',    bodyKey: 'ob.merge.body' },
     { target: null,                                            titleKey: 'ob.reorder.title',  bodyKey: 'ob.reorder.body' },
-    { target: `button[aria-label="${t('tb.undo')}"]`,          titleKey: 'ob.undo.title',     bodyKey: 'ob.undo.body' },
-    { target: `button[aria-label="${t('tb.zoom_in')}"]`,       titleKey: 'ob.zoom.title',     bodyKey: 'ob.zoom.body' },
-    { target: '[data-testid="lang-button"]',                   titleKey: 'ob.lang.title',     bodyKey: 'ob.lang.body' },
-    { target: '[data-testid="theme-button"]',                  titleKey: 'ob.theme.title',    bodyKey: 'ob.theme.body' },
     { target: `button[aria-label="${t('tb.download')}"]`,      titleKey: 'ob.download.title', bodyKey: 'ob.download.body' },
   ]
 }
@@ -72,26 +58,39 @@ function forceShow(): boolean {
   catch { return false }
 }
 
-export function Onboarding() {
+export function Onboarding({ replayKey = 0 }: { replayKey?: number }) {
   const t = useT()
   const pdfBytes = usePdfStore((s) => s.pdfBytes)
   const [active, setActive] = useState<boolean>(() => forceShow() || !readDone())
   const [step, setStep] = useState(0)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
-  // Reset to step 0 when transitioning into post-open mode so the user sees
-  // the toolbar tour fresh after opening their first PDF. Also re-activate
-  // the card if the user paused the tour at the end of pre-open by clicking
-  // through Welcome → Privacy without opening anything (next() pauses
-  // instead of dismissing in that case — see below).
+  useEffect(() => {
+    if (replayKey <= 0) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setStep(0)
+      setActive(true)
+    })
+    return () => { cancelled = true }
+  }, [replayKey])
+
+  // If the first-visit card is still active when a PDF opens, transition it
+  // into the short post-open tour. If the user already completed or dismissed
+  // the pre-open cards, do not revive it unexpectedly.
   const [hasOpenedAtLeastOnce, setHasOpenedAtLeastOnce] = useState(false)
   useEffect(() => {
-    if (pdfBytes && !hasOpenedAtLeastOnce && !readDone()) {
+    if (!pdfBytes || hasOpenedAtLeastOnce || readDone() || !active) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
       setHasOpenedAtLeastOnce(true)
       setStep(0)
       setActive(true)
-    }
-  }, [pdfBytes, hasOpenedAtLeastOnce])
+    })
+    return () => { cancelled = true }
+  }, [pdfBytes, hasOpenedAtLeastOnce, active])
 
   const postOpenSteps = useMemo(() => buildPostOpenSteps(t), [t])
   const steps = pdfBytes ? postOpenSteps : PRE_OPEN_STEPS
@@ -103,8 +102,8 @@ export function Onboarding() {
   // an off-screen button would push the card to a corner).
   useLayoutEffect(() => {
     if (!active || !current) return
-    if (!current.target) { setPos(null); return }
     function place() {
+      if (!current?.target) { setPos(null); return }
       const el = document.querySelector(current.target as string) as HTMLElement | null
       // Always scroll the target into the visible portion of its scroll
       // container — on mobile the horizontal-scrolling toolbar may have
@@ -123,6 +122,7 @@ export function Onboarding() {
       setPos({ left, top })
     }
     place()
+    if (!current.target) return
     window.addEventListener('resize', place)
     // The card is anchored to a target's bounding rect; if the user scrolls
     // (very common on the empty-state sample list) the target moves but the
@@ -142,16 +142,6 @@ export function Onboarding() {
   }
   function next() {
     if (step + 1 >= steps.length) {
-      // End of pre-open with no PDF open yet: hide the card without marking
-      // the tour done. The useEffect above re-activates it (starting from
-      // post-open step 0) the moment the user opens a file. Without this
-      // pause-not-dismiss path, clicking through Welcome → Privacy
-      // permanently dismissed the tour and the user never saw the 16-step
-      // toolbar walkthrough.
-      if (!pdfBytes) {
-        setActive(false)
-        return
-      }
       dismiss()
       return
     }

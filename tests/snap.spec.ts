@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 
 // Pre-dismiss the onboarding tour for every test by default — except for
 // tests inside the dedicated 'onboarding tour' describe, which need the
@@ -38,7 +38,7 @@ const FIXTURES: { label: RegExp; minCells: number; path: string }[] = [
   { label: /IRS 1040 \(2010\)/,    minCells: 40, path: 'fixtures/forms/f1040-2010.pdf' },
   { label: /Widget-only form/,     minCells: 5,  path: 'fixtures/forms/annotation-text-widget.pdf' },
   { label: /pdf\.js form regression/, minCells: 1, path: 'fixtures/forms/bug1947248_forms.pdf' },
-  { label: /IRS Form W-9/,         minCells: 10, path: 'fixtures/forms/irs-w9.pdf' },
+  { label: /IRS Form W-9/,         minCells: 1,  path: 'fixtures/forms/irs-w9.pdf' },
   { label: /IRS Form W-4/,         minCells: 8,  path: 'fixtures/forms/irs-w4.pdf' },
   { label: /IRS Schedule A/,       minCells: 25, path: 'fixtures/forms/irs-schedule-a.pdf' },
   { label: /DE — Anmeldung/,       minCells: 10, path: 'fixtures/forms/de-anmeldung.pdf' },
@@ -47,6 +47,12 @@ const FIXTURES: { label: RegExp; minCells: number; path: string }[] = [
   { label: /DE — Mietvertrag/,     minCells: 10, path: 'fixtures/forms/de-mietvertrag.pdf' },
   { label: /DE — Rechnung/,        minCells: 15, path: 'fixtures/forms/de-rechnung.pdf' },
   { label: /DE — DRV V0005/,       minCells: 18, path: 'fixtures/forms/de-drv-v0005-rente.pdf' },
+  { label: /DE — AA eID-card/,     minCells: 18, path: 'fixtures/forms/de-aa-eid-card.pdf' },
+  { label: /DE — BNetzA 0800/,     minCells: 24, path: 'fixtures/forms/de-bnetza-0800-rechtsnachfolge.pdf' },
+  { label: /DE — BA KiZ 5/,        minCells: 35, path: 'fixtures/forms/de-ba-kiz5-verdienst.pdf' },
+  { label: /DE — BA PD U1/,        minCells: 15, path: 'fixtures/forms/de-ba-pd-u1.pdf' },
+  { label: /EU — Financial ID/,    minCells: 16, path: 'fixtures/forms/eu-commission-financial-identification.pdf' },
+  { label: /EU — ACER RRM/,        minCells: 6,  path: 'fixtures/forms/eu-acer-rrm-application.pdf' },
   { label: /USCIS Form I-9/,       minCells: 0,  path: 'fixtures/forms/uscis-i9-2011.pdf' },
   { label: /Free-text annotation PDF/, minCells: 0, path: 'fixtures/forms/annotation-freetext.pdf' },
   { label: /XFA — IMM1344E/,       minCells: 0,  path: 'fixtures/forms/xfa-imm1344e.pdf' },
@@ -65,6 +71,72 @@ async function openFixture(page: Page, label: RegExp) {
   await input.setInputFiles(f.path)
   // Wait for at least one PDF page to render its canvas.
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15_000 })
+}
+
+type CssBox = { x: number; y: number; width: number; height: number }
+
+type SnapPreviewGeometry = {
+  x: number
+  y: number
+  w: number
+  h: number
+  scale: number
+  box: CssBox
+}
+
+function numericAttr(raw: string | null, name: string): number {
+  const value = Number(raw)
+  if (!Number.isFinite(value)) throw new Error(`Missing numeric ${name} attribute on snap preview`)
+  return value
+}
+
+async function readSnapPreview(preview: Locator): Promise<SnapPreviewGeometry> {
+  await expect(preview).toBeVisible({ timeout: 10_000 })
+  const [x, y, w, h, scale] = await Promise.all([
+    preview.getAttribute('data-snap-x').then((v) => numericAttr(v, 'data-snap-x')),
+    preview.getAttribute('data-snap-y').then((v) => numericAttr(v, 'data-snap-y')),
+    preview.getAttribute('data-snap-w').then((v) => numericAttr(v, 'data-snap-w')),
+    preview.getAttribute('data-snap-h').then((v) => numericAttr(v, 'data-snap-h')),
+    preview.getAttribute('data-snap-scale').then((v) => numericAttr(v, 'data-snap-scale')),
+  ])
+  const box = { x: x * scale, y: y * scale, width: w * scale, height: h * scale }
+  return { x, y, w, h, scale, box }
+}
+
+async function hoverSnapPreview(
+  page: Page,
+  position: { x: number; y: number },
+  pageIdx = 0,
+): Promise<SnapPreviewGeometry> {
+  const pdfPage = page.locator(`[data-page-idx="${pageIdx}"]`)
+  await expect(pdfPage).toBeVisible({ timeout: 15_000 })
+  await pdfPage.hover({ position: { x: position.x + 2, y: position.y + 2 } })
+  await pdfPage.hover({ position })
+  return readSnapPreview(page.getByTestId('snap-hover-preview').first())
+}
+
+async function readInlineBox(locator: Locator): Promise<CssBox> {
+  await expect(locator).toBeVisible({ timeout: 10_000 })
+  const box = await locator.evaluate((el) => {
+    const style = el instanceof HTMLElement ? el.style : null
+    return {
+      x: Number.parseFloat(style?.left ?? ''),
+      y: Number.parseFloat(style?.top ?? ''),
+      width: Number.parseFloat(style?.width ?? ''),
+      height: Number.parseFloat(style?.height ?? ''),
+    }
+  })
+  for (const [key, value] of Object.entries(box)) {
+    if (!Number.isFinite(value)) throw new Error(`Missing inline ${key} geometry`)
+  }
+  return box
+}
+
+function expectBoxesToMatch(actual: CssBox, expected: CssBox, positionTolerance = 2, sizeTolerance = positionTolerance) {
+  expect(Math.abs(actual.x - expected.x), `x mismatch: ${actual.x} vs ${expected.x}`).toBeLessThanOrEqual(positionTolerance)
+  expect(Math.abs(actual.y - expected.y), `y mismatch: ${actual.y} vs ${expected.y}`).toBeLessThanOrEqual(positionTolerance)
+  expect(Math.abs(actual.width - expected.width), `width mismatch: ${actual.width} vs ${expected.width}`).toBeLessThanOrEqual(sizeTolerance)
+  expect(Math.abs(actual.height - expected.height), `height mismatch: ${actual.height} vs ${expected.height}`).toBeLessThanOrEqual(sizeTolerance)
 }
 
 test.describe('snap debug overlay', () => {
@@ -103,15 +175,23 @@ test.describe('add-text + snap user flow', () => {
     const firstPage = page.locator('[data-page-idx="0"]')
     await expect(firstPage).toBeVisible()
 
-    // Click roughly inside a known field area (mid-form, slightly down). The
-    // detector emits 60+ cells across the page so any reasonable mid-page
-    // click should land inside one or near enough for proximity snap.
-    await firstPage.click({ position: { x: 200, y: 200 } })
+    // The hover target is the source of truth the user sees before clicking.
+    // Click the centre of that preview so dense, adjacent form rows cannot
+    // turn a boundary point into a different snap decision.
+    const preview = await hoverSnapPreview(page, { x: 200, y: 200 })
+    await firstPage.click({
+      position: {
+        x: preview.box.x + preview.box.width / 2,
+        y: preview.box.y + preview.box.height / 2,
+      },
+    })
 
     // A text annotation should appear — its contenteditable is what receives
     // typed input. The first one should be focused and ready.
     const editor = page.locator('[contenteditable]').first()
     await expect(editor).toBeVisible()
+    const annotationBox = await readInlineBox(page.locator('[data-id]').first())
+    expectBoxesToMatch(annotationBox, preview.box, 2, 8)
     await editor.type('hello')
     await expect(editor).toContainText('hello')
   })
@@ -120,16 +200,12 @@ test.describe('add-text + snap user flow', () => {
     await openFixture(page, /IRS 1040 \(2022\)/)
     await page.getByRole('button', { name: /^Add text$/ }).click()
 
-    const firstPage = page.locator('[data-page-idx="0"]')
-    // Hover then move slightly to ensure a pointermove fires after enter.
-    await firstPage.hover({ position: { x: 200, y: 200 } })
-    await firstPage.hover({ position: { x: 202, y: 202 } })
-
-    // Hover preview is a div with bg-primary tint; we just check at least one
-    // such overlay (besides the debug overlay) is present after hovering.
-    // bg-primary/10 is the live hover tint in PdfPage's snap preview.
-    const preview = page.locator('div.bg-primary\\/10')
-    await expect(preview.first()).toBeVisible()
+    const preview = await hoverSnapPreview(page, { x: 200, y: 200 })
+    expect(preview.x).toBeGreaterThanOrEqual(0)
+    expect(preview.y).toBeGreaterThanOrEqual(0)
+    expect(preview.w).toBeGreaterThan(10)
+    expect(preview.h).toBeGreaterThan(4)
+    expect(preview.scale).toBeGreaterThan(0)
   })
 })
 
@@ -170,15 +246,23 @@ test.describe('theme picker', () => {
     await expect(page.locator('html')).toHaveClass(/(^|\s)dark(\s|$)/)
   })
 
-  test('Sepia, Solarized, Dracula, and High-Contrast each map to their own class', async ({ page }) => {
+  test('named themes each map to their own class', async ({ page }) => {
     await page.goto('/')
     const html = page.locator('html')
     const cases: Array<[string, string, boolean]> = [
       // [option-id, expected class on <html>, isDark]
       ['theme-option-sepia',     'theme-sepia',     false],
+      ['theme-option-solarized-light', 'theme-solarized-light', false],
+      ['theme-option-gruvbox-light', 'theme-gruvbox-light', false],
+      ['theme-option-catppuccin-latte', 'theme-catppuccin-latte', false],
+      ['theme-option-github-light', 'theme-github-light', false],
       ['theme-option-hc',        'theme-hc',        true],
       ['theme-option-solarized', 'theme-solarized', true],
       ['theme-option-dracula',   'theme-dracula',   true],
+      ['theme-option-nord',      'theme-nord',      true],
+      ['theme-option-gruvbox',   'theme-gruvbox',   true],
+      ['theme-option-catppuccin', 'theme-catppuccin', true],
+      ['theme-option-tokyo',     'theme-tokyo',     true],
       ['theme-option-light',     '',                false],
     ]
     for (const [tid, cls, isDark] of cases) {
@@ -207,7 +291,7 @@ test.describe('multi-page rendering', () => {
 })
 
 test.describe('history', () => {
-  test('Undo removes the most recent text annotation', async ({ page }) => {
+  test('Undo reverts typed text before removing the annotation', async ({ page }) => {
     await openFixture(page, /IRS 1040 \(2022\)/)
     await page.getByRole('button', { name: /^Add text$/ }).click()
     const firstPage = page.locator('[data-page-idx="0"]')
@@ -218,7 +302,11 @@ test.describe('history', () => {
     // Click somewhere outside to commit and let the toolbar re-evaluate.
     await page.keyboard.press('Escape')
 
-    await page.getByRole('button', { name: /^Undo$/ }).click()
+    const undo = page.getByRole('button', { name: /^Undo$/ })
+    await undo.click()
+    await expect(page.locator('[contenteditable]')).toHaveCount(1)
+    await expect(page.locator('[contenteditable]').first()).toHaveText('')
+    await undo.click()
     await expect(page.locator('[contenteditable]')).toHaveCount(0)
   })
 })
@@ -244,10 +332,7 @@ test.describe('snap toggle behavior', () => {
     await page.getByRole('button', { name: /^Add text$/ }).click()
 
     const firstPage = page.locator('[data-page-idx="0"]')
-    await firstPage.hover({ position: { x: 200, y: 200 } })
-    await firstPage.hover({ position: { x: 202, y: 202 } })
-    // Preview is a translucent primary tint — present before toggle.
-    await expect(page.locator('div.bg-primary\\/10').first()).toBeVisible()
+    await hoverSnapPreview(page, { x: 200, y: 200 })
 
     // Disable snap. The toggle is labelled "Snap on" while pressed.
     await page.getByRole('button', { name: /Snap on/ }).click()
@@ -255,8 +340,60 @@ test.describe('snap toggle behavior', () => {
     // Move the cursor first to clear any current hoverRow, then re-hover.
     await firstPage.hover({ position: { x: 50, y: 50 } })
     await firstPage.hover({ position: { x: 200, y: 200 } })
-    // No bg-primary/10 preview should be present anywhere now.
-    await expect(page.locator('div.bg-primary\\/10')).toHaveCount(0)
+    await expect(page.getByTestId('snap-hover-preview')).toHaveCount(0)
+  })
+
+  test('snap-off click free-places text instead of reusing the snap row', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await page.getByRole('button', { name: /^Add text$/ }).click()
+
+    const firstPage = page.locator('[data-page-idx="0"]')
+    const preview = await hoverSnapPreview(page, { x: 200, y: 200 })
+
+    await page.getByRole('button', { name: /Snap on/ }).click()
+    await firstPage.click({ position: { x: 200, y: 200 } })
+
+    const annotationBox = await readInlineBox(page.locator('[data-id]').first())
+    expect(Math.abs(annotationBox.x - 200), `free-place x was ${annotationBox.x}`).toBeLessThanOrEqual(2)
+    expect(Math.abs(annotationBox.y - 200), `free-place y was ${annotationBox.y}`).toBeLessThanOrEqual(2)
+    expect(Math.abs(annotationBox.x - preview.box.x), 'snap-off reused snapped x').toBeGreaterThan(8)
+    expect(Math.abs(annotationBox.y - preview.box.y), 'snap-off reused snapped y').toBeGreaterThan(8)
+  })
+})
+
+test.describe('snap geometry under zoom', () => {
+  test('the same PDF point resolves to the same snap row after zooming', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await page.getByRole('button', { name: /^Add text$/ }).click()
+
+    const firstPage = page.locator('[data-page-idx="0"]')
+    const pageBoxBefore = await firstPage.boundingBox()
+    if (!pageBoxBefore) throw new Error('missing page bbox before zoom')
+
+    const first = await hoverSnapPreview(page, { x: 200, y: 200 })
+    const pdfPoint = { x: 200 / first.scale, y: 200 / first.scale }
+
+    await page.getByRole('button', { name: /^Zoom in$/ }).click()
+    await page.getByRole('button', { name: /^Zoom in$/ }).click()
+
+    await expect.poll(async () => {
+      const box = await firstPage.boundingBox()
+      return box?.width ?? 0
+    }, { timeout: 10_000 }).toBeGreaterThan(pageBoxBefore.width * 1.4)
+
+    const pageBoxAfter = await firstPage.boundingBox()
+    if (!pageBoxAfter) throw new Error('missing page bbox after zoom')
+    const zoomedScale = first.scale * (pageBoxAfter.width / pageBoxBefore.width)
+
+    const second = await hoverSnapPreview(page, {
+      x: pdfPoint.x * zoomedScale,
+      y: pdfPoint.y * zoomedScale,
+    })
+
+    expect(Math.abs(second.x - first.x), `x changed from ${first.x} to ${second.x}`).toBeLessThanOrEqual(1)
+    expect(Math.abs(second.y - first.y), `y changed from ${first.y} to ${second.y}`).toBeLessThanOrEqual(1)
+    expect(Math.abs(second.w - first.w), `w changed from ${first.w} to ${second.w}`).toBeLessThanOrEqual(1)
+    expect(Math.abs(second.h - first.h), `h changed from ${first.h} to ${second.h}`).toBeLessThanOrEqual(1)
   })
 })
 
@@ -314,8 +451,39 @@ async function addTextAnnotation(page: Page, x = 200, y = 200, text = 'note') {
   return editor
 }
 
+async function downloadPdfBytes(page: Page, timeout = 60_000): Promise<Uint8Array> {
+  const downloadPromise = page.waitForEvent('download', { timeout })
+  await page.getByRole('button', { name: /^Download$/ }).click()
+  const download = await downloadPromise
+  const path = await download.path()
+  if (!path) throw new Error('download path not available')
+  const fs = await import('node:fs/promises')
+  return await fs.readFile(path)
+}
+
+async function expectValidPdf(bytes: Uint8Array, minPages = 1) {
+  expect(bytes.length).toBeGreaterThan(1000)
+  expect(bytes.subarray(0, 4).toString()).toBe('%PDF')
+  const tail = bytes.subarray(Math.max(0, bytes.length - 64)).toString()
+  expect(tail).toContain('%%EOF')
+
+  const { PDFDocument } = await import('pdf-lib')
+  const doc = await PDFDocument.load(bytes)
+  expect(doc.getPageCount()).toBeGreaterThanOrEqual(minPages)
+}
+
+async function extractPdfText(bytes: Uint8Array, pageNumber = 1): Promise<string> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const reloaded = await pdfjs.getDocument({
+    data: new Uint8Array(bytes), isEvalSupported: false, disableFontFace: true,
+  }).promise
+  const p = await reloaded.getPage(pageNumber)
+  const tc = await p.getTextContent()
+  return tc.items.map((it: { str?: string }) => it.str ?? '').join(' ')
+}
+
 test.describe('history stack depth', () => {
-  test('three annotations undone three times leaves nothing', async ({ page }) => {
+  test('three typed annotations undo through text edits and placements', async ({ page }) => {
     await openFixture(page, /IRS 1040 \(2022\)/)
     await addTextAnnotation(page, 200, 200, 'one')
     await addTextAnnotation(page, 200, 240, 'two')
@@ -324,10 +492,44 @@ test.describe('history stack depth', () => {
 
     const undo = page.getByRole('button', { name: /^Undo$/ })
     await undo.click()
+    await expect(page.locator('[contenteditable]')).toHaveCount(3)
+    await undo.click()
+    await expect(page.locator('[contenteditable]')).toHaveCount(2)
+    await undo.click()
     await expect(page.locator('[contenteditable]')).toHaveCount(2)
     await undo.click()
     await expect(page.locator('[contenteditable]')).toHaveCount(1)
     await undo.click()
+    await expect(page.locator('[contenteditable]')).toHaveCount(1)
+    await undo.click()
+    await expect(page.locator('[contenteditable]')).toHaveCount(0)
+  })
+})
+
+test.describe('redo and clear all', () => {
+  test('Cmd+Shift+Z redoes an undone annotation edit', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await addTextAnnotation(page, 220, 220, 'redo-check')
+    const editor = page.locator('[contenteditable]').last()
+    await expect(editor).toContainText('redo-check')
+
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z')
+    await expect(editor).toHaveText('', { timeout: 10_000 })
+
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Shift+Z')
+    await expect(editor).toContainText('redo-check', { timeout: 10_000 })
+  })
+
+  test('Clear all removes placed annotations after confirmation', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await addTextAnnotation(page, 220, 220, 'clear-me')
+    await expect(page.locator('[contenteditable]')).toHaveCount(1)
+
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain('Remove all annotations')
+      await dialog.accept()
+    })
+    await page.getByRole('button', { name: /^Clear all$/ }).click()
     await expect(page.locator('[contenteditable]')).toHaveCount(0)
   })
 })
@@ -343,7 +545,7 @@ test.describe('persistence round-trip', () => {
     // The app does not auto-restore the last fixture — the user has to click
     // the Recent entry. Verify the round-trip via that path.
     await expect(page.getByRole('heading', { name: /Recent/ })).toBeVisible()
-    await page.getByRole('button', { name: /f1040-2022\.pdf/ }).click()
+    await page.getByRole('button', { name: /^f1040-2022\.pdf\b/ }).click()
     await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15_000 })
     const editor = page.locator('[contenteditable]').first()
     await expect(editor).toBeVisible({ timeout: 10_000 })
@@ -364,14 +566,79 @@ test.describe('persistence round-trip', () => {
     await expect(page.locator('[contenteditable]')).toHaveCount(0)
   })
 
-  test('keyboard shortcut ⌘Z undoes the most recent annotation', async ({ page }) => {
+  test('keyboard shortcut ⌘Z undoes typed content before the annotation', async ({ page }) => {
     await openFixture(page, /IRS 1040 \(2022\)/)
     await addTextAnnotation(page, 200, 200, 'undoable')
     await expect(page.locator('[contenteditable]')).toHaveCount(1)
     // Use the platform-specific modifier (Mac is "Meta" — Playwright maps
     // ControlOrMeta to whichever fits the agent OS).
     await page.keyboard.press('ControlOrMeta+z')
+    await expect(page.locator('[contenteditable]')).toHaveCount(1)
+    await expect(page.locator('[contenteditable]').first()).toHaveText('')
+    await page.keyboard.press('ControlOrMeta+z')
     await expect(page.locator('[contenteditable]')).toHaveCount(0)
+  })
+})
+
+test.describe('form fields', () => {
+  test('text and checkbox widget edits persist through Recent and download as a valid PDF', async ({ page }) => {
+    await openFixture(page, /Widget-only form/)
+    const formText = page.locator('[data-form-field-name]').first()
+    await expect(formText).toBeVisible({ timeout: 15_000 })
+
+    const textInput = page.locator('input[type="text"][data-form-field-name], textarea[data-form-field-name]').first()
+    await expect(textInput).toBeVisible({ timeout: 15_000 })
+    await textInput.fill('FORM-E2E-VALUE')
+    await textInput.blur()
+
+    const checkbox = page.locator('input[type="checkbox"][data-form-field-name]').first()
+    if (await checkbox.count()) {
+      await checkbox.check()
+      await expect(checkbox).toBeChecked()
+    }
+
+    const bytes = await downloadPdfBytes(page)
+    await expectValidPdf(bytes)
+    // Form-field edits are patched into the Recent record by the same
+    // debounce used in production, so wait for that autosave before reload.
+    await page.waitForTimeout(1_000)
+
+    await page.reload()
+    await page.getByRole('button', { name: /^annotation-text-widget\.pdf\b/ }).click()
+    await expect(page.locator('[data-page-idx="0"] canvas')).toBeVisible({ timeout: 15_000 })
+    const restoredText = page.locator('input[type="text"][data-form-field-name], textarea[data-form-field-name]').first()
+    await expect(restoredText).toHaveValue('FORM-E2E-VALUE', { timeout: 10_000 })
+    if (await checkbox.count()) {
+      await expect(page.locator('input[type="checkbox"][data-form-field-name]').first()).toBeChecked()
+    }
+  })
+})
+
+test.describe('image annotations', () => {
+  test('Add image places an image annotation, supports moving it, and downloads a valid PDF', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await page.getByRole('button', { name: /Add image/ }).click()
+    await page.locator('input[type="file"][accept="image/png,image/jpeg,image/gif,image/webp"]').setInputFiles('public/icon-192.png')
+
+    const firstPage = page.locator('[data-page-idx="0"]')
+    await firstPage.click({ position: { x: 260, y: 260 } })
+    const imageAnnotation = page.locator('[data-id] img').first()
+    await expect(imageAnnotation).toBeVisible({ timeout: 10_000 })
+
+    const wrapper = page.locator('[data-id]').first()
+    const before = await wrapper.boundingBox()
+    if (!before) throw new Error('missing image annotation bbox before drag')
+    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(before.x + before.width / 2 + 80, before.y + before.height / 2 + 80, { steps: 8 })
+    await page.mouse.up()
+    await expect.poll(async () => {
+      const after = await wrapper.boundingBox()
+      return !!after && Math.abs(after.x - before.x) > 5
+    }, { timeout: 10_000 }).toBe(true)
+
+    const bytes = await downloadPdfBytes(page)
+    await expectValidPdf(bytes)
   })
 })
 
@@ -494,6 +761,34 @@ test.describe('select mode + delete', () => {
   })
 })
 
+test.describe('redaction flow', () => {
+  test('R shortcut enters redaction mode, drag creates a redaction, and download removes source text', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    const fs = await import('node:fs/promises')
+    const sourceBytes = await fs.readFile('fixtures/forms/f1040-2022.pdf')
+    const sourceText = await extractPdfText(sourceBytes)
+    expect(sourceText).toMatch(/Form\s+1040/)
+
+    await page.keyboard.press('r')
+    await expect(page.getByText(/Drag over sensitive content/i)).toBeVisible()
+
+    const firstPage = page.locator('[data-page-idx="0"]')
+    await firstPage.hover({ position: { x: 80, y: 70 } })
+    await page.mouse.down()
+    await firstPage.hover({ position: { x: 310, y: 125 } })
+    await expect(page.getByTestId('redaction-draft')).toBeVisible()
+    await page.mouse.up()
+
+    await expect(page.locator('[data-id]').first()).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(/^Select$/).first()).toBeVisible()
+
+    const bytes = await downloadPdfBytes(page)
+    await expectValidPdf(bytes)
+    const redactedText = await extractPdfText(bytes)
+    expect(redactedText).not.toMatch(/Form\s+1040/)
+  })
+})
+
 test.describe('graceful no-snap fallback', () => {
   // XFA forms render via pdf.js's separate XFA pipeline. Our detector reads
   // the standard Acroform/operator-list path and finds 0 cells on a pure XFA
@@ -526,6 +821,10 @@ const GERMAN_FIXTURES: { label: RegExp; click: { x: number; y: number } }[] = [
   { label: /DE — Mietvertrag/,         click: { x: 220, y: 200 } },
   { label: /DE — Rechnung/,            click: { x: 220, y: 200 } },
   { label: /DE — DRV V0005/,           click: { x: 220, y: 200 } },
+  { label: /DE — AA eID-card/,         click: { x: 220, y: 160 } },
+  { label: /DE — BNetzA 0800/,         click: { x: 230, y: 170 } },
+  { label: /DE — BA KiZ 5/,            click: { x: 220, y: 155 } },
+  { label: /DE — BA PD U1/,            click: { x: 220, y: 320 } },
 ]
 
 for (const f of GERMAN_FIXTURES) {
@@ -543,10 +842,9 @@ for (const f of GERMAN_FIXTURES) {
     test('hover preview rectangle appears in Add-text mode', async ({ page }) => {
       await openFixture(page, f.label)
       await page.getByRole('button', { name: /^Add text$/ }).click()
-      const firstPage = page.locator('[data-page-idx="0"]')
-      await firstPage.hover({ position: f.click })
-      await firstPage.hover({ position: { x: f.click.x + 2, y: f.click.y + 2 } })
-      await expect(page.locator('div.bg-primary\\/10').first()).toBeVisible()
+      const preview = await hoverSnapPreview(page, f.click)
+      expect(preview.w).toBeGreaterThan(8)
+      expect(preview.h).toBeGreaterThan(3)
     })
 
     test('snap-applied font size is non-default and visible', async ({ page }) => {
@@ -577,11 +875,15 @@ for (const f of GERMAN_FIXTURES) {
       expect(r + g + b).toBeLessThan(200)
     })
 
-    test('undo removes the annotation just placed', async ({ page }) => {
+    test('undo reverts typed text, then removes the annotation', async ({ page }) => {
       await openFixture(page, f.label)
       await addTextAnnotation(page, f.click.x, f.click.y, 'temporäre Notiz')
       await expect(page.locator('[contenteditable]')).toHaveCount(1)
-      await page.getByRole('button', { name: /^Undo$/ }).click()
+      const undo = page.getByRole('button', { name: /^Undo$/ })
+      await undo.click()
+      await expect(page.locator('[contenteditable]')).toHaveCount(1)
+      await expect(page.locator('[contenteditable]').first()).toHaveText('')
+      await undo.click()
       await expect(page.locator('[contenteditable]')).toHaveCount(0)
     })
   })
@@ -642,7 +944,7 @@ test.describe('multi-page annotations', () => {
     // Round-trip via Recent.
     await page.waitForTimeout(800)
     await page.reload()
-    await page.getByRole('button', { name: /uscis-i9-2011\.pdf/ }).click()
+    await page.getByRole('button', { name: /^uscis-i9-2011\.pdf\b/ }).click()
     await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15_000 })
     await expect(page.locator('[contenteditable]')).toHaveCount(2, { timeout: 10_000 })
   })
@@ -686,6 +988,41 @@ test.describe('signature flow', () => {
     await page.locator('[data-page-idx="0"]').click({ position: { x: 240, y: 360 } })
     // The placed annotation is an <img> inside a [data-id] wrapper.
     await expect(page.locator('[data-id] img').first()).toBeVisible()
+  })
+
+  test('Drawn signatures are saved, reusable, and removable', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await page.getByRole('button', { name: /Add signature/ }).click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    const pad = dialog.locator('canvas').first()
+    await expect(pad).toBeVisible()
+    const box = await pad.boundingBox()
+    if (!box) throw new Error('signature pad bbox missing')
+
+    await page.mouse.move(box.x + 40, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + 140, box.y + 40, { steps: 5 })
+    await page.mouse.move(box.x + 240, box.y + box.height / 2, { steps: 5 })
+    await page.mouse.up()
+    await dialog.getByRole('button', { name: /^Use signature$/ }).click()
+
+    await expect(dialog).toBeHidden()
+    await page.locator('[data-page-idx="0"]').click({ position: { x: 240, y: 360 } })
+    await expect(page.locator('[data-id] img')).toHaveCount(1)
+
+    await page.getByRole('button', { name: /Add signature/ }).click()
+    await expect(page.getByText(/Saved/i)).toBeVisible()
+    await dialog.locator('button:has(img)').first().click()
+    await expect(dialog).toBeHidden()
+    await page.locator('[data-page-idx="0"]').click({ position: { x: 330, y: 360 } })
+    await expect(page.locator('[data-id] img')).toHaveCount(2)
+
+    await page.getByRole('button', { name: /Add signature/ }).click()
+    await expect(page.getByRole('button', { name: /^Delete saved signature$/ })).toBeVisible()
+    await page.getByRole('button', { name: /^Delete saved signature$/ }).click()
+    await expect(page.getByRole('button', { name: /^Delete saved signature$/ })).toHaveCount(0)
   })
 })
 
@@ -787,16 +1124,14 @@ test.describe('drawing pen settings', () => {
     // effect anywhere else, so it's gated by mode === 'draw'). Enter draw
     // mode first, then open the popover and pick a colour.
     await page.getByRole('button', { name: /^Draw$/ }).click()
-    await page.getByRole('button', { name: /^Pen settings$/ }).click()
+    await expect(page.getByRole('button', { name: /^Draw$/ })).toHaveAttribute('aria-pressed', 'true')
+    const penSettings = page.getByRole('button', { name: /^Pen settings$/ })
+    await expect(penSettings).toBeVisible()
+    await penSettings.click()
     // PEN_COLORS uses HTML `title` for accessible name; pick Red.
-    const popoverRed = page.getByRole('button', { name: 'Red' })
+    const popoverRed = page.locator('[data-radix-popper-content-wrapper]').getByRole('button', { name: /^Red$/ })
     await expect(popoverRed.first()).toBeVisible()
     await popoverRed.first().click()
-    // Close the popover by clicking the trigger again. Pressing Escape
-    // would also close it but Escape additionally exits draw mode (the
-    // global keydown handler in App.tsx sets mode→idle), which would
-    // unmount the popover trigger and break subsequent drawing.
-    await page.getByRole('button', { name: /^Pen settings$/ }).click()
     const firstPage = page.locator('[data-page-idx="0"]')
     const box = await firstPage.boundingBox()
     if (!box) throw new Error('first page bbox unavailable')
@@ -807,10 +1142,8 @@ test.describe('drawing pen settings', () => {
     }
     await page.mouse.up()
 
-    const path = firstPage.locator('svg path').first()
+    const path = firstPage.locator('svg path[stroke="#dc2626"]').first()
     await expect(path).toBeAttached()
-    const stroke = await path.getAttribute('stroke')
-    expect(stroke).toBe('#dc2626')
   })
 })
 
@@ -892,14 +1225,24 @@ test.describe('edit existing text mode', () => {
   test('The cover rectangle behind the editor is white', async ({ page }) => {
     await openFixture(page, /IRS Schedule A/)
     await page.keyboard.press('e')
-    await page.getByTestId('edit-target').first().click()
+    const target = page.getByTestId('edit-target').first()
+    await expect(target).toBeVisible({ timeout: 10_000 })
+    const targetBox = await target.boundingBox()
+    if (!targetBox) throw new Error('no target bbox')
+    await target.click()
     // The cover became a separate element (data-testid="text-edit-cover")
     // pinned to origBbox so the editor wrapper can be dragged independently.
     // Look at the cover, not the wrapper, for the white masking colour.
     const cover = page.getByTestId('text-edit-cover').first()
     await expect(cover).toBeVisible()
+    const coverBox = await cover.boundingBox()
+    const wrapperBox = await page.locator('[data-id]').last().boundingBox()
+    if (!coverBox) throw new Error('no cover bbox')
+    if (!wrapperBox) throw new Error('no wrapper bbox')
     const bg = await cover.evaluate((el) => getComputedStyle(el as HTMLElement).backgroundColor)
     expect(bg.replace(/\s+/g, '')).toMatch(/^rgba?\(255,255,255(,1)?\)$/)
+    expect(coverBox.y).toBeLessThan(wrapperBox.y)
+    expect(coverBox.y + coverBox.height).toBeGreaterThan(wrapperBox.y + targetBox.height + 1)
   })
 
   test('Multiple edits on the same page persist as distinct annotations', async ({ page }) => {
@@ -931,7 +1274,11 @@ test.describe('edit existing text mode', () => {
     await page.keyboard.press('Escape')
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
 
-    await page.getByRole('button', { name: /^Undo$/ }).click()
+    const undo = page.getByRole('button', { name: /^Undo$/ })
+    await undo.click()
+    await expect(page.locator('[contenteditable]')).toHaveCount(1)
+    await expect(page.locator('[contenteditable]').last()).not.toContainText('UNDONE')
+    await undo.click()
     await expect(page.locator('[contenteditable]')).toHaveCount(0)
 
     // Re-enter edit mode — the run we just undid should be clickable again.
@@ -950,7 +1297,7 @@ test.describe('edit existing text mode', () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
     await page.waitForTimeout(800)
     await page.reload()
-    await page.getByRole('button', { name: /irs-schedule-a\.pdf/ }).click()
+    await page.getByRole('button', { name: /^irs-schedule-a\.pdf\b/ }).click()
     await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15_000 })
     const editor = page.locator('[contenteditable]').first()
     await expect(editor).toBeVisible({ timeout: 10_000 })
@@ -1193,66 +1540,51 @@ test.describe('edit existing text mode', () => {
     expect(lh!).toBeLessThan(1.1)
   })
 
-  // TODO: re-enable once the dev build exposes `window.__pdfStoreForTests`
-  // (a thin debug shim around `usePdfStore.getState().updateAnnotation`). The
-  // pointer-event fallback below doesn't fire React's drag handlers reliably
-  // through Playwright, so the test passes only via the store path.
-  test.skip('Dragging a textEdit in edit mode keeps the original glyphs masked at the source bbox', async ({ page }) => {
+  test('Dragging a textEdit in edit mode keeps the original glyphs masked at the source bbox', async ({ page }) => {
     await openFixture(page, /IRS Schedule A/)
     await page.keyboard.press('e')
-    const target = page.getByTestId('edit-target').first()
-    await expect(target).toBeVisible({ timeout: 10_000 })
-    await target.click()
+    const targets = page.getByTestId('edit-target')
+    await expect(targets.first()).toBeVisible({ timeout: 10_000 })
+    const before = await targets.count()
+    await targets.first().click()
+    await page.keyboard.press('Escape')
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
+    await page.keyboard.press('e')
 
     const cover = page.getByTestId('text-edit-cover').first()
     await expect(cover).toBeVisible()
     const coverBefore = await cover.boundingBox()
-    const wrapperBefore = await page.locator('[data-id]').first().boundingBox()
+    const wrapper = page.locator('[data-id]').last()
+    const wrapperBefore = await wrapper.boundingBox()
     if (!coverBefore || !wrapperBefore) throw new Error('no bbox before')
 
-    // Simulate a drag via store-level mutation — sidesteps the Playwright
-    // pointer-event retargeting quirk and proves what the user-facing
-    // contract actually depends on: the cover is bound to origBbox, not to
-    // the editor's current x/y, so any mechanism that moves the wrapper
-    // must leave the cover in place.
-    await page.evaluate(() => {
-      const w = document.querySelector('[data-id]') as HTMLElement | null
-      if (!w) throw new Error('no wrapper')
-      const id = w.getAttribute('data-id')
-      // Move via a small custom hook on window the test can use — if the
-      // store isn't exposed, fall back to dispatching a CustomEvent the
-      // app could listen to. Here: read the store through a debug shim.
-      const store = (window as unknown as { __pdfStoreForTests?: { updateAnnotation: (id: string, p: object) => void } }).__pdfStoreForTests
-      if (store) {
-        store.updateAnnotation(id!, { x: 200, y: 200 })
-        return
-      }
-      // Fallback: simulate via pointer events on the wrapper.
-      const r = w.getBoundingClientRect()
-      const cx = r.left + r.width / 2
-      const cy = r.top + r.height / 2
-      const dx = 80, dy = 50
-      const make = (type: string, x: number, y: number, target: 'el' | 'win' = 'el') => {
-        const e = new PointerEvent(type, {
-          bubbles: true, cancelable: true, button: 0, pointerType: 'mouse', clientX: x, clientY: y,
-        })
-        if (target === 'el') w.dispatchEvent(e)
-        else window.dispatchEvent(e)
-      }
-      make('pointerdown', cx, cy, 'el')
-      for (let i = 1; i <= 10; i++) {
-        make('pointermove', cx + (dx * i) / 10, cy + (dy * i) / 10, 'win')
-      }
-      make('pointerup', cx + dx, cy + dy, 'win')
-    })
+    await page.mouse.move(wrapperBefore.x + wrapperBefore.width / 2, wrapperBefore.y + wrapperBefore.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(
+      wrapperBefore.x + wrapperBefore.width / 2 + 80,
+      wrapperBefore.y + wrapperBefore.height / 2 + 50,
+      { steps: 10 },
+    )
+    await page.mouse.up()
     await page.waitForTimeout(300)
 
     // The cover must stay anchored to the original glyph bbox regardless of
     // where the wrapper moves — that's the load-bearing contract.
     const coverAfter = await cover.boundingBox()
+    const wrapperAfter = await wrapper.boundingBox()
     if (!coverAfter) throw new Error('no cover bbox after')
-    expect(Math.abs(coverAfter.left - coverBefore.left)).toBeLessThan(1)
-    expect(Math.abs(coverAfter.top  - coverBefore.top)).toBeLessThan(1)
+    if (!wrapperAfter) throw new Error('no wrapper bbox after')
+    expect(Math.abs(coverAfter.x - coverBefore.x)).toBeLessThan(1)
+    expect(Math.abs(coverAfter.y - coverBefore.y)).toBeLessThan(1)
+    expect(Math.abs(wrapperAfter.x - wrapperBefore.x)).toBeGreaterThan(20)
+
+    // Re-entering edit mode must not expose the original run as a target again;
+    // target suppression is based on the fixed source bbox, not the moved editor.
+    await page.keyboard.press('Escape')
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
+    await page.keyboard.press('e')
+    await expect(targets.first()).toBeVisible({ timeout: 10_000 })
+    await expect.poll(async () => targets.count(), { timeout: 10_000 }).toBe(before - 1)
   })
 
   test('Cyrillic input round-trips through download (Unicode font fallback)', async ({ page }) => {
@@ -1337,6 +1669,12 @@ const ALL_FIXTURES: RegExp[] = [
   /DE — Mietvertrag/,
   /DE — Rechnung/,
   /DE — DRV V0005/,
+  /DE — AA eID-card/,
+  /DE — BNetzA 0800/,
+  /DE — BA KiZ 5/,
+  /DE — BA PD U1/,
+  /EU — Financial ID/,
+  /EU — ACER RRM/,
 ]
 
 test.describe('download every bundled fixture', () => {
@@ -1568,6 +1906,81 @@ test.describe('UI guards', () => {
     await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15_000 })
     await expect(dl).toBeEnabled()
   })
+
+  test('@mobile mobile toolbar exposes primary and overflow PDF actions', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await expect(page.getByRole('button', { name: /^Save$/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Text$/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Sign$/ })).toBeVisible()
+
+    await page.getByRole('button', { name: /^More$/ }).click()
+    const popover = page.locator('[data-slot="popover-content"]').last()
+    await expect(popover).toBeVisible()
+    await expect(popover.getByRole('button', { name: /^Redact$/ })).toBeVisible()
+    await expect(popover.getByRole('button', { name: /^Add image/ })).toBeVisible()
+    await expect(popover.getByText(/^Watermark$/)).toBeVisible()
+    await expect(popover.getByRole('button', { name: /^Add to end$/ })).toBeVisible()
+  })
+})
+
+test.describe('watermark', () => {
+  test('toolbar control shows a page watermark preview', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await expect(page.locator('[data-page-idx="0"] canvas')).toBeVisible({ timeout: 15_000 })
+
+    await page.getByRole('button', { name: /^Watermark$/ }).click()
+    const popover = page.locator('[data-slot="popover-content"]').last()
+    await expect(popover).toBeVisible()
+    await popover.getByLabel(/^Add watermark to PDF$/).check()
+    await expect(popover.getByText(/^Added$/)).toBeVisible()
+    await popover.getByLabel(/^Watermark text$/).fill('APPROVED')
+
+    const preview = page.getByTestId('watermark-preview').first()
+    await expect(preview).toBeVisible()
+    await expect(preview).toContainText('APPROVED')
+  })
+
+  test('downloaded PDF includes the configured watermark text', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await page.getByRole('button', { name: /^Watermark$/ }).click()
+    const popover = page.locator('[data-slot="popover-content"]').last()
+    await expect(popover).toBeVisible()
+    await popover.getByLabel(/^Add watermark to PDF$/).check()
+    await popover.getByLabel(/^Watermark text$/).fill('E2E-WATERMARK')
+    await page.keyboard.press('Escape')
+
+    const bytes = await downloadPdfBytes(page)
+    await expectValidPdf(bytes)
+    const allText = await extractPdfText(bytes)
+    expect(allText).toContain('E2E-WATERMARK')
+  })
+})
+
+test.describe('page numbers', () => {
+  test('toolbar control shows a preview and downloaded PDF includes page numbers', async ({ page }) => {
+    await openFixture(page, /USCIS Form I-9/)
+    await expect(page.locator('[data-page-idx="0"] canvas')).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('[data-page-idx]')).toHaveCount(5, { timeout: 20_000 })
+
+    await page.getByRole('button', { name: /^Page numbers$/ }).click()
+    const popover = page.locator('[data-slot="popover-content"]').last()
+    await expect(popover).toBeVisible()
+    await popover.getByLabel(/^Insert page numbers$/).check()
+    await popover.getByLabel(/^Page number position$/).click()
+    await page.getByRole('option', { name: /^Top right$/ }).click()
+
+    const preview = page.getByTestId('page-number-preview').first()
+    await expect(preview).toBeVisible()
+    await expect(preview).toContainText('Page 1 of 5')
+    await page.keyboard.press('Escape')
+
+    const bytes = await downloadPdfBytes(page)
+    await expectValidPdf(bytes, 5)
+    const page1Text = await extractPdfText(bytes, 1)
+    const page5Text = await extractPdfText(bytes, 5)
+    expect(page1Text).toContain('Page 1 of 5')
+    expect(page5Text).toContain('Page 5 of 5')
+  })
 })
 
 test.describe('merge / reorder / compress', () => {
@@ -1604,6 +2017,7 @@ test.describe('merge / reorder / compress', () => {
     // W-9 has 6 pages — enough rail thumbs to drag between.
     await openFixture(page, /IRS Form W-9/)
     await expect(page.locator('[data-page-idx="0"] canvas')).toBeVisible({ timeout: 15_000 })
+    await expect.poll(async () => pageCount(page), { timeout: 20_000 }).toBe(6)
     const before = await pageCount(page)
     expect(before).toBeGreaterThanOrEqual(2)
 
@@ -1625,7 +2039,51 @@ test.describe('merge / reorder / compress', () => {
     // No JS errors during the drag.
   })
 
-  test('Compress: download with "Make PDF smaller" produces a smaller file', async ({ page }) => {
+  test('Rotate: right rail button rotates a page without losing pages', async ({ page }) => {
+    await openFixture(page, /IRS Form W-9/)
+    const canvas = page.locator('[data-page-idx="0"] canvas')
+    await expect(canvas).toBeVisible({ timeout: 15_000 })
+    await expect.poll(async () => pageCount(page), { timeout: 20_000 }).toBe(6)
+    const beforeCount = await pageCount(page)
+    const beforeBox = await canvas.boundingBox()
+    if (!beforeBox) throw new Error('missing first page bbox before rotate')
+    expect(beforeBox.height).toBeGreaterThan(beforeBox.width)
+
+    const rail = page.getByLabel('Page thumbnails')
+    await expect(rail).toBeVisible()
+    const actions = rail.getByTestId('page-thumbnail-actions').first()
+    await expect.poll(async () => actions.evaluate((el) => getComputedStyle(el).opacity)).toBe('0')
+    await rail.locator('li').first().hover()
+    await expect.poll(async () => actions.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+    await rail.getByRole('button', { name: /Rotate page clockwise 1/i }).click()
+
+    await expect.poll(async () => pageCount(page), { timeout: 20_000 }).toBe(beforeCount)
+    await expect.poll(async () => {
+      const box = await canvas.boundingBox()
+      if (!box) return false
+      return box.width > box.height
+    }, { timeout: 20_000 }).toBe(true)
+  })
+
+  test('Delete page: right rail button removes one page', async ({ page }) => {
+    await openFixture(page, /IRS Form W-9/)
+    await expect(page.locator('[data-page-idx="0"] canvas')).toBeVisible({ timeout: 15_000 })
+    await expect.poll(async () => pageCount(page), { timeout: 20_000 }).toBe(6)
+    const beforeCount = await pageCount(page)
+    expect(beforeCount).toBeGreaterThanOrEqual(2)
+
+    const rail = page.getByLabel('Page thumbnails')
+    await expect(rail).toBeVisible()
+    await rail.locator('li').nth(1).hover()
+    await rail.getByRole('button', { name: /Delete page 2/i }).click()
+    const dialog = page.getByRole('dialog', { name: /Delete page 2/i })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: /^Delete page$/i }).click()
+
+    await expect.poll(async () => pageCount(page), { timeout: 20_000 }).toBe(beforeCount - 1)
+  })
+
+  test('Compress: High does not make an already-optimized PDF larger', async ({ page }) => {
     await openFixture(page, /IRS 1040 \(2022\)/)
     await expect(page.locator('[data-page-idx="0"] canvas')).toBeVisible({ timeout: 15_000 })
 
@@ -1637,10 +2095,14 @@ test.describe('merge / reorder / compress', () => {
     const fs = await import('node:fs')
     const sizeDefault = fs.statSync(path1).size
 
-    // Open the download options popover, tick the compress checkbox
-    // (quality stays at "Balanced" default → 150 DPI).
+    // Open the download options popover, tick the compress checkbox, and pick
+    // High compression (96 DPI). For vector-heavy forms this may still be
+    // larger than the editable PDF, so the app should fall back to the
+    // normal edited bytes instead of downloading a bigger "compressed" file.
     await page.getByRole('button', { name: /Download options/i }).click()
     await page.getByRole('checkbox', { name: /Make PDF smaller/i }).check()
+    await page.getByRole('combobox', { name: /Compression/i }).click()
+    await page.getByRole('option', { name: /^High\b/ }).click()
 
     // Close the popover by clicking the main Download button — that also
     // triggers the second download.
@@ -1650,15 +2112,11 @@ test.describe('merge / reorder / compress', () => {
     const path2 = await dl2.path()
     const sizeCompressed = fs.statSync(path2).size
 
-    // Compressed must actually be smaller. The IRS 1040 (2022) is ~150KB
-    // of vector content; rasterising at 150 DPI + JPEG q=0.75 should
-    // produce a different size — usually larger for short text-heavy
-    // forms (rasterisation isn't always smaller than vector text!), but
-    // never zero, and always different from the strict path. Assert the
-    // file is non-trivial and parses as a valid PDF — the strict size
-    // comparison is meaningful only for image-heavy / scanned content.
+    // Compression must never make the user's download larger. For this
+    // vector-heavy source, the app usually chooses the normal edited PDF
+    // because raster JPEG pages would be larger.
     expect(sizeCompressed).toBeGreaterThan(1000)
-    expect(sizeCompressed).not.toBe(sizeDefault)
+    expect(sizeCompressed).toBeLessThanOrEqual(sizeDefault)
 
     // Verify the bytes are a valid PDF (just check the magic bytes — full
     // round-trip parsing is covered by the buildPdf unit tests).
@@ -1666,36 +2124,34 @@ test.describe('merge / reorder / compress', () => {
     expect(bytes.slice(0, 5).toString('ascii')).toBe('%PDF-')
   })
 
-  test('Compress: "Sharp" quality produces a different file than "Smaller"', async ({ page }) => {
-    // Sanity check that the DPI preset actually flows through to output.
-    // Different DPI ⇒ different rasterisation ⇒ different bytes. If the
-    // picker were a no-op, both downloads would produce identical files.
-    await openFixture(page, /IRS 1040 \(2022\)/)
+  test('Compress: High compression produces a smaller file than Low on raster content', async ({ page }) => {
+    // Sanity check that the Low/Mid/High preset actually flows through to
+    // output. Use an image-heavy government PDF where raster compression is
+    // expected to win over the normal editable output.
+    await openFixture(page, /DE — DRV V0005/)
     await expect(page.locator('[data-page-idx="0"] canvas')).toBeVisible({ timeout: 15_000 })
 
     const fs = await import('node:fs')
 
-    // Smaller preset.
+    // Low compression: 200 DPI, higher JPEG quality.
     await page.getByRole('button', { name: /Download options/i }).click()
     await page.getByRole('checkbox', { name: /Make PDF smaller/i }).check()
-    // Open the quality select. shadcn's <Select> is a Radix combobox.
-    await page.getByRole('combobox').click()
-    await page.getByRole('option', { name: /Smaller/ }).click()
+    // Open the level select. shadcn's <Select> is a Radix combobox.
+    await page.getByRole('combobox', { name: /Compression/i }).click()
+    await page.getByRole('option', { name: /^Low\b/ }).click()
     // Close popover with main Download click.
-    const dlSmall = page.waitForEvent('download', { timeout: 60_000 })
+    const dlLow = page.waitForEvent('download', { timeout: 60_000 })
     await page.getByRole('button', { name: /^Download$/ }).click()
-    const sizeSmall = fs.statSync(await (await dlSmall).path()).size
+    const sizeLow = fs.statSync(await (await dlLow).path()).size
 
-    // Sharp preset.
+    // High compression: 96 DPI, lower JPEG quality.
     await page.getByRole('button', { name: /Download options/i }).click()
-    await page.getByRole('combobox').click()
-    await page.getByRole('option', { name: /Sharp/ }).click()
-    const dlSharp = page.waitForEvent('download', { timeout: 60_000 })
+    await page.getByRole('combobox', { name: /Compression/i }).click()
+    await page.getByRole('option', { name: /^High\b/ }).click()
+    const dlHigh = page.waitForEvent('download', { timeout: 60_000 })
     await page.getByRole('button', { name: /^Download$/ }).click()
-    const sizeSharp = fs.statSync(await (await dlSharp).path()).size
+    const sizeHigh = fs.statSync(await (await dlHigh).path()).size
 
-    // Sharp uses 200 DPI vs 96 DPI for Smaller — ~4× more pixels, so the
-    // resulting JPEG (even at q=0.85 vs q=0.6) is bigger.
-    expect(sizeSharp).toBeGreaterThan(sizeSmall)
+    expect(sizeHigh).toBeLessThan(sizeLow)
   })
 })

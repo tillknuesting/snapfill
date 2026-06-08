@@ -27,6 +27,7 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
   const zoom = usePdfStore((s) => s.zoom)
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [pages, setLocalPages] = useState<PDFPageProxy[]>([])
+  const [pageCount, setPageCount] = useState(0)
   const [baseWidth, setBaseWidth] = useState<number>(900)
   const [pageInfos, setPageInfos] = useState<PageInfo[]>([])
   // Surfaced when pdfjs.getDocument rejects (corrupt file, password-protected
@@ -39,27 +40,40 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
   useEffect(() => {
     // Clear old document state immediately so a stale rail/viewer doesn't
     // flash while the new PDF is parsing.
-    setDoc(null)
-    setLocalPages([])
-    setLoadError(null)
-    onPagesLoaded?.([])
-    if (!pdfBytes) return
     let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setDoc(null)
+      setLocalPages([])
+      setPageCount(0)
+      setPageInfos([])
+      setLoadError(null)
+      onPagesLoaded?.([])
+    })
+    if (!pdfBytes) return () => { cancelled = true }
     const data = pdfBytes.slice()
     const task = pdfjsLib.getDocument({ data })
     task.promise.then(async (d) => {
       if (cancelled) return
       setDoc(d)
-      // Fan out the page-proxy fetches so a 100-page document doesn't
-      // serialise 100 round-trips before any page can render. Each call is
-      // cheap on its own; pdfjs's worker handles them in parallel.
-      const ps = await Promise.all(
-        Array.from({ length: d.numPages }, (_, i) => d.getPage(i + 1)),
-      )
-      if (!cancelled) {
-        setLocalPages(ps)
-        onPagesLoaded?.(ps)
+      setPageCount(d.numPages)
+      const loaded: PDFPageProxy[] = []
+      for (let start = 1; start <= d.numPages && !cancelled;) {
+        const batchSize = loaded.length === 0 ? 1 : 4
+        const nums = Array.from(
+          { length: Math.min(batchSize, d.numPages - start + 1) },
+          (_, i) => start + i,
+        )
+        const batch = await Promise.all(nums.map((n) => d.getPage(n)))
+        if (cancelled) return
+        loaded.push(...batch)
+        start += nums.length
+        setLocalPages([...loaded])
+        if (loaded.length < d.numPages) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+        }
       }
+      if (!cancelled) onPagesLoaded?.(loaded)
     }).catch((err) => {
       if (cancelled) return
       console.error('PDF load failed', err)
@@ -72,7 +86,10 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
         : (e?.message || 'Could not open this PDF.')
       setLoadError(message)
     })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      try { void task.destroy() } catch { /* noop */ }
+    }
   }, [pdfBytes, onPagesLoaded])
 
   useEffect(() => {
@@ -94,10 +111,15 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
   }, [])
 
   useEffect(() => {
-    if (pageInfos.length === pages.length && pages.length > 0) {
-      setPages(pageInfos)
+    if (pageCount === 0) return
+    const complete = Array.from(
+      { length: pageCount },
+      (_, idx) => pageInfos[idx]?.pageIdx === idx,
+    ).every(Boolean)
+    if (complete) {
+      setPages(pageInfos.slice(0, pageCount))
     }
-  }, [pageInfos, pages.length, setPages])
+  }, [pageInfos, pageCount, setPages])
 
   if (loadError) {
     // Render a recoverable error state instead of leaving the loading

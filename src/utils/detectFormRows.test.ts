@@ -59,6 +59,11 @@ describe('findRowAt — proximity fallback', () => {
     // ...but acceptable if threshold is loose
     expect(findRowAt(ROWS, 100, 480, 100)).toBe(ROWS[5])
   })
+
+  it('measures proximity from the nearest row edge, not the row center', () => {
+    const tall: FormRow = { topY: 100, height: 40, xStart: 50, xEnd: 250 }
+    expect(findRowAt([tall], 100, 145, 10)).toBe(tall)
+  })
 })
 
 describe('findRowAt — empty input', () => {

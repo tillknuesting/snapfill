@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileText, Trash2, Upload, X } from 'lucide-react'
+import { FileText, Trash2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useT } from '@/utils/useT'
@@ -7,7 +7,6 @@ import {
   clearRecentFiles,
   formatBytes,
   formatRelativeTime,
-  loadRecentFile,
   loadRecentFiles,
   removeRecentFile,
   type RecentFileMeta,
@@ -15,9 +14,10 @@ import {
 
 interface EmptyStateProps {
   onFile: (file: File) => void
+  onRecentFile: (id: string) => void | Promise<void>
 }
 
-export function EmptyState({ onFile }: EmptyStateProps) {
+export function EmptyState({ onFile, onRecentFile }: EmptyStateProps) {
   const t = useT()
   const [over, setOver] = useState(false)
   const [recents, setRecents] = useState<RecentFileMeta[]>([])
@@ -56,19 +56,11 @@ export function EmptyState({ onFile }: EmptyStateProps) {
     input.click()
   }
 
-  async function openRecent(meta: RecentFileMeta) {
-    const r = await loadRecentFile(meta.id)
-    if (!r) {
-      setRecents((rs) => rs.filter((x) => x.id !== meta.id))
-      return
-    }
-    const blob = new Blob([r.bytes as BlobPart], { type: 'application/pdf' })
-    const file = new File([blob], r.name, { type: 'application/pdf' })
-    onFile(file)
+  function openRecent(meta: RecentFileMeta) {
+    void onRecentFile(meta.id)
   }
 
-  async function removeRecent(id: string, e: React.MouseEvent) {
-    e.stopPropagation()
+  async function removeRecent(id: string) {
     await removeRecentFile(id)
     setRecents((rs) => rs.filter((x) => x.id !== id))
   }
@@ -134,11 +126,11 @@ export function EmptyState({ onFile }: EmptyStateProps) {
             </div>
             <ul className="divide-y rounded-lg border bg-card">
               {recents.map((r) => (
-                <li key={r.id}>
+                <li key={r.id} className="group flex items-center gap-3 px-3 py-2 hover:bg-accent">
                   <button
                     type="button"
                     onClick={() => openRecent(r)}
-                    className="group flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent"
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   >
                     <FileText className="size-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
@@ -147,15 +139,15 @@ export function EmptyState({ onFile }: EmptyStateProps) {
                         {formatBytes(r.size)} · {formatRelativeTime(r.openedAt)}
                       </div>
                     </div>
-                    <span
-                      onClick={(e) => removeRecent(r.id, e)}
-                      role="button"
-                      tabIndex={0}
-                      title="Remove from recent"
-                      className="invisible flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive group-hover:visible"
-                    >
-                      <X className="size-3.5" />
-                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeRecent(r.id)}
+                    title={t('rs.remove')}
+                    aria-label={`${t('rs.remove')} ${r.name}`}
+                    className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground opacity-70 hover:bg-destructive/10 hover:text-destructive hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <Trash2 className="size-3.5" />
                   </button>
                 </li>
               ))}

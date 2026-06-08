@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { usePdfStore } from '@/store/usePdfStore'
 import { FONT_FAMILIES, normalizeFamily } from '@/utils/fonts'
@@ -6,7 +6,7 @@ import { formatDate } from '@/utils/dateFormats'
 import { pointsToSmoothPath } from '@/utils/drawing'
 import { assertNever } from '@/utils/assertNever'
 import type {
-  Annotation as AnnotType, DrawingAnnotation, ImageAnnotation, PageInfo, TextAnnotation, TextEditAnnotation,
+  Annotation as AnnotType, DrawingAnnotation, ImageAnnotation, PageInfo, RedactionAnnotation, TextAnnotation, TextEditAnnotation,
 } from '@/types'
 import { cn } from '@/lib/utils'
 import { FloatingToolbar } from './FloatingToolbar'
@@ -20,22 +20,30 @@ interface AnnotationProps {
 const CORNERS = ['tl', 'tr', 'bl', 'br'] as const
 type Corner = (typeof CORNERS)[number]
 
+function textEditCoverBleed(fontSize: number) {
+  return {
+    x: Math.min(1.5, Math.max(0.5, fontSize * 0.06)),
+    top: Math.min(2, Math.max(0.75, fontSize * 0.08)),
+    bottom: Math.min(4, Math.max(1.5, fontSize * 0.18)),
+  }
+}
+
 function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
   // Narrow subscriptions: each annotation only re-renders when something it
   // actually depends on changes. Actions are stable refs.
   const mode = usePdfStore((s) => s.mode)
-  const selectedId = usePdfStore((s) => s.selectedId)
+  const isSelected = usePdfStore((s) => s.selectedId === annotation.id)
   const setSelectedId = usePdfStore((s) => s.setSelectedId)
   const updateAnnotation = usePdfStore((s) => s.updateAnnotation)
   const removeAnnotation = usePdfStore((s) => s.removeAnnotation)
   const pushHistory = usePdfStore((s) => s.pushHistory)
-  const isSelected = selectedId === annotation.id
   const wrapRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<HTMLDivElement>(null)
   // Track what HTML we've last written into the contentEditable so the sync
   // effect can tell apart externally-set values from in-flight typing.
   // Must start empty: the editor div starts empty until our effect writes to it.
   const lastHtmlRef = useRef<string>('')
+  const contentDirtyRef = useRef(false)
   // True while the contentEditable for *this* annotation is "active". Lets us
   // expose drag/resize affordances on the active text box only — others stay
   // frozen until the user enters Select mode.
@@ -48,6 +56,11 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
   // outside any Radix popper portal. That keeps the toolbar mounted while the
   // user is interacting with it.
   const [editorFocused, setEditorFocused] = useState(false)
+  const commitContentHistory = useCallback(() => {
+    if (!contentDirtyRef.current) return
+    contentDirtyRef.current = false
+    pushHistory()
+  }, [pushHistory])
 
   useEffect(() => {
     if (!editorFocused) return
@@ -63,11 +76,12 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
       if (t instanceof Element && t.closest(
         '[data-radix-popper-content-wrapper],[role="listbox"],[role="option"],[role="menu"],[role="menuitem"],[role="dialog"]',
       )) return
+      commitContentHistory()
       setEditorFocused(false)
     }
     document.addEventListener('pointerdown', onDown, true)
     return () => document.removeEventListener('pointerdown', onDown, true)
-  }, [editorFocused])
+  }, [commitContentHistory, editorFocused])
 
   // Memoised SVG path for drawing annotations (cheap pass-through for others).
   const pathD = useMemo(
@@ -191,7 +205,39 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
     const anchorRight = corner.includes('l')
     const anchorBottom = corner.includes('t')
 
-    if (annotation.type === 'signature' || annotation.type === 'drawing' || annotation.type === 'image') {
+    if (annotation.type === 'redaction') {
+      const a = annotation as RedactionAnnotation
+      const origX = a.x, origY = a.y, origW = a.w, origH = a.h
+      const pageW = page.cssWidth / scale
+      const pageH = page.cssHeight / scale
+      let resized = false
+      function move(ev: PointerEvent) {
+        resized = true
+        const dx = (ev.clientX - startX) / scale
+        const dy = (ev.clientY - startY) / scale
+        let newW = Math.max(5, origW + dx * rx)
+        let newH = Math.max(5, origH + dy * ry)
+        let nx = anchorRight ? origX + origW - newW : origX
+        let ny = anchorBottom ? origY + origH - newH : origY
+        if (nx < 0) { newW += nx; nx = 0 }
+        if (ny < 0) { newH += ny; ny = 0 }
+        if (nx + newW > pageW) newW = pageW - nx
+        if (ny + newH > pageH) newH = pageH - ny
+        updateAnnotation(a.id, {
+          x: nx,
+          y: ny,
+          w: Math.max(5, newW),
+          h: Math.max(5, newH),
+        })
+      }
+      function up() {
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+        if (resized) pushHistory()
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+    } else if (annotation.type === 'signature' || annotation.type === 'drawing' || annotation.type === 'image') {
       const a = annotation
       const aspect = a.h / a.w
       const origPoints = a.type === 'drawing' ? a.points : null
@@ -270,6 +316,7 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
       Math.abs((aTE.origX ?? a.x) - a.x) > 0.1 ||
       Math.abs((aTE.origY ?? a.y) - a.y) > 0.1
     )
+    const coverBleed = isEdit ? textEditCoverBleed(a.fontSize) : { x: 0, top: 0, bottom: 0 }
     return (
       <>
         {/* Persistent cover for the original glyphs — sticks at origBbox
@@ -280,10 +327,10 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
             data-testid="text-edit-cover"
             className="pointer-events-none absolute"
             style={{
-              left: (aTE.origX ?? 0) * scale,
-              top: (aTE.origY ?? 0) * scale,
-              width: (aTE.origW ?? 0) * scale,
-              height: (aTE.origH ?? 0) * scale,
+              left: ((aTE.origX ?? 0) - coverBleed.x) * scale,
+              top: ((aTE.origY ?? 0) - coverBleed.top) * scale,
+              width: ((aTE.origW ?? 0) + coverBleed.x * 2) * scale,
+              height: ((aTE.origH ?? 0) + coverBleed.top + coverBleed.bottom) * scale,
               background: aTE.cover ?? '#ffffff',
             }}
           />
@@ -299,7 +346,7 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
           // Inert in any mode where the user is *placing* something new —
           // EXCEPT for textEdit annotations during edit mode, which we keep
           // clickable so they can be re-edited in place.
-          (mode === 'text' || mode === 'signature' || mode === 'draw' ||
+          (mode === 'text' || mode === 'signature' || mode === 'draw' || mode === 'redact' ||
             (mode === 'edit' && !isEdit)) && 'pointer-events-none',
           // In edit mode, give textEdit annotations a yellow ring so the
           // user can spot their existing edits among the click-targets and
@@ -334,6 +381,7 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
               patch.dateLocale = undefined
             }
             updateAnnotation(a.id, patch)
+            contentDirtyRef.current = true
           }}
           onPointerDown={(e) => {
             // The wrapper drives gestures in: select (drag), and edit-mode
@@ -346,6 +394,7 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
             if (!wrapperDrives) e.stopPropagation()
           }}
           onFocus={() => setEditorFocused(true)}
+          onBlur={commitContentHistory}
           onPaste={(e) => {
             // Strip paste to plain text. Otherwise pasted HTML (e.g.
             // `<img onerror=...>`) would round-trip through innerHTML and
@@ -406,6 +455,7 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
               onChange: (newLocale) => {
                 const formatted = formatDate(a.dateMs!, newLocale)
                 updateAnnotation(a.id, { dateLocale: newLocale, data: formatted })
+                pushHistory()
               },
             } : undefined}
           />
@@ -425,6 +475,7 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
               onChange: (newLocale) => {
                 const formatted = formatDate(a.dateMs!, newLocale)
                 updateAnnotation(a.id, { dateLocale: newLocale, data: formatted })
+                pushHistory()
               },
             }}
           />
@@ -445,7 +496,7 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
           'anim-fade-in absolute border border-dashed border-transparent',
           mode === 'select' && 'cursor-move hover:border-primary',
           isSelected && 'border-primary',
-          (mode === 'text' || mode === 'signature' || mode === 'draw' || mode === 'edit') && 'pointer-events-none',
+          (mode === 'text' || mode === 'signature' || mode === 'draw' || mode === 'edit' || mode === 'redact') && 'pointer-events-none',
         )}
         style={{ left: cssLeft, top: cssTop, width: cssWidth, height: cssHeight }}
       >
@@ -479,6 +530,40 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
               width: a.strokeWidth,
               onChange: (patch) => updateAnnotation(a.id, patch),
             }}
+          />
+        )}
+      </div>
+    )
+  }
+
+  if (annotation.type === 'redaction') {
+    const a = annotation as RedactionAnnotation
+    return (
+      <div
+        ref={wrapRef}
+        data-id={a.id}
+        onPointerDown={startDrag}
+        className={cn(
+          'anim-fade-in absolute border border-dashed border-transparent',
+          mode === 'select' && 'cursor-move hover:border-primary',
+          isSelected && 'border-primary',
+          mode !== 'select' && 'pointer-events-none',
+        )}
+        style={{
+          left: cssLeft,
+          top: cssTop,
+          width: cssWidth,
+          height: cssHeight,
+          background: a.color || '#000000',
+        }}
+      >
+        <DeleteButton onClick={() => removeAnnotation(a.id)} visible={isSelected} />
+        <Handles onResize={startResize} visible={isSelected} />
+        {isSelected && (
+          <FloatingToolbar
+            anchorLeft={0}
+            anchorTop={-40}
+            onDelete={() => removeAnnotation(a.id)}
           />
         )}
       </div>

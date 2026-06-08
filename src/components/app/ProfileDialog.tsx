@@ -15,13 +15,18 @@ interface Props {
 
 export function ProfileDialog({ open, onOpenChange }: Props) {
   const t = useT()
-  const [fields, setFields] = useState<ProfileField[]>([])
+  const [fields, setFields] = useState<ProfileField[]>(() => (open ? loadProfile() : []))
   const setPendingTextValue = usePdfStore((s) => s.setPendingTextValue)
   const setMode = usePdfStore((s) => s.setMode)
   const pdfBytes = usePdfStore((s) => s.pdfBytes)
 
   useEffect(() => {
-    if (open) setFields(loadProfile())
+    if (!open) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setFields(loadProfile())
+    })
+    return () => { cancelled = true }
   }, [open])
 
   function update(next: ProfileField[]) {

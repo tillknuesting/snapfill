@@ -120,6 +120,69 @@ describe('buildPdf — integration', () => {
     expect(reloaded.getPageCount()).toBe(1)
   })
 
+  it('writes a parseable PDF with a document watermark', async () => {
+    const pdfBytes = await makeBlankPdf()
+    const plain = await buildPdf({
+      pdfBytes,
+      annotations: [],
+      pages: [PAGE],
+      formFieldEdits: new Map(),
+    })
+    const out = await buildPdf({
+      pdfBytes,
+      annotations: [],
+      pages: [PAGE],
+      formFieldEdits: new Map(),
+      watermark: {
+        enabled: true,
+        text: 'CONFIDENTIAL',
+        fontSize: 72,
+        opacity: 0.2,
+        rotation: -35,
+        color: '#991b1b',
+      },
+    })
+    expect(out.byteLength).toBeGreaterThan(plain.byteLength)
+    const reloaded = await PDFDocument.load(out)
+    expect(reloaded.getPageCount()).toBe(1)
+  })
+
+  it('writes document page numbers into each page', async () => {
+    const doc = await PDFDocument.create()
+    doc.addPage([PAGE.pdfWidth, PAGE.pdfHeight])
+    doc.addPage([PAGE.pdfWidth, PAGE.pdfHeight])
+    const pdfBytes = await doc.save()
+    const out = await buildPdf({
+      pdfBytes,
+      annotations: [],
+      pages: [PAGE, { ...PAGE, pageIdx: 1 }],
+      formFieldEdits: new Map(),
+      pageNumbers: {
+        enabled: true,
+        format: 'page-of-total',
+        position: 'bottom-center',
+        startAt: 1,
+        fontSize: 10,
+        color: '#0a1f3d',
+        margin: 28,
+      },
+    })
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    const reloaded = await pdfjs.getDocument({
+      data: new Uint8Array(out), isEvalSupported: false, disableFontFace: true,
+    } as unknown as Parameters<typeof pdfjs.getDocument>[0]).promise
+    const page1 = await reloaded.getPage(1)
+    const page2 = await reloaded.getPage(2)
+    const text1 = (await page1.getTextContent()).items
+      .map((it) => ('str' in it ? it.str : ''))
+      .join(' ')
+    const text2 = (await page2.getTextContent()).items
+      .map((it) => ('str' in it ? it.str : ''))
+      .join(' ')
+    expect(text1).toContain('Page 1 of 2')
+    expect(text2).toContain('Page 2 of 2')
+  })
+
   it('writes a text annotation into the PDF', async () => {
     const text: Annotation = {
       id: '1', type: 'text', pageIdx: 0,
@@ -248,6 +311,32 @@ describe('buildPdf — integration', () => {
     expect(out.byteLength).toBeGreaterThan(200)
   })
 
+  it('writes the textEdit cover even when the replacement is empty', async () => {
+    const pdfBytes = await makeBlankPdf()
+    const baseline = await buildPdf({
+      pdfBytes,
+      annotations: [],
+      pages: [PAGE],
+      formFieldEdits: new Map(),
+    })
+    const edit: Annotation = {
+      id: 'te-empty', type: 'textEdit', pageIdx: 0,
+      x: 50, y: 100, w: 80, h: 14,
+      origX: 50, origY: 100, origW: 80, origH: 14,
+      data: '', fontSize: 12, family: 'helvetica', color: '#0a1f3d',
+      cover: '#ffffff',
+      originalFontName: 'g_d0_f1',
+    }
+    const out = await buildPdf({
+      pdfBytes,
+      annotations: [edit],
+      pages: [PAGE],
+      formFieldEdits: new Map(),
+    })
+    await expect(PDFDocument.load(out)).resolves.toBeDefined()
+    expect(out.byteLength).toBeGreaterThan(baseline.byteLength)
+  })
+
   it('writes a signature annotation (PNG) into the PDF', async () => {
     const sig: Annotation = {
       id: '2', type: 'signature', pageIdx: 0,
@@ -281,7 +370,21 @@ describe('buildPdf — integration', () => {
     await expect(PDFDocument.load(out)).resolves.toBeDefined()
   })
 
-  it('mixes all annotation types on one page', async () => {
+  it('rejects redaction annotations because they must be raster-flattened by the caller', async () => {
+    const redaction: Annotation = {
+      id: 'r', type: 'redaction', pageIdx: 0,
+      x: 40, y: 80, w: 160, h: 28,
+      color: '#000000',
+    }
+    await expect(buildPdf({
+      pdfBytes: await makeBlankPdf(),
+      annotations: [redaction],
+      pages: [PAGE],
+      formFieldEdits: new Map(),
+    })).rejects.toThrow(/raster-flattened/)
+  })
+
+  it('mixes all buildable annotation types on one page', async () => {
     const annots: Annotation[] = [
       { id: 't', type: 'text', pageIdx: 0, x: 10, y: 10, w: 100, h: 18,
         data: 'mixed', fontSize: 12, family: 'times', color: '#000' },
@@ -289,6 +392,10 @@ describe('buildPdf — integration', () => {
         data: PNG_DATA_URL },
       { id: 'd', type: 'drawing', pageIdx: 0, x: 300, y: 300, w: 50, h: 50,
         points: [[0, 0], [50, 50]], color: '#1d4ed8', opacity: 1, strokeWidth: 1.5 },
+      { id: 'i', type: 'image', pageIdx: 0, x: 40, y: 80, w: 20, h: 20,
+        data: PNG_DATA_URL, mime: 'image/png' },
+      { id: 'e', type: 'textEdit', pageIdx: 0, x: 60, y: 120, w: 80, h: 14,
+        data: 'edited', fontSize: 12, family: 'helvetica', color: '#000000' },
     ]
     const out = await buildPdf({
       pdfBytes: await makeBlankPdf(),

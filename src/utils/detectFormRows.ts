@@ -22,6 +22,11 @@ export interface FormRow {
 
 interface RawH { topY: number; xStart: number; xEnd: number }
 interface RawV { x: number; topYTop: number; topYBottom: number }
+interface ViewportLike {
+  width: number
+  height: number
+  convertToViewportPoint: (x: number, y: number) => number[]
+}
 
 // Reasonable input-box sizes. Values picked from real-form telemetry: IRS 1040
 // rects span roughly 22–380 pt wide × 9–24 pt tall; rejecting anything outside
@@ -54,7 +59,10 @@ function applyMat(m: Mat, x: number, y: number): [number, number] {
   return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
 }
 
-export async function detectFormRows(page: PDFPageProxy, pdfPageHeight: number): Promise<FormRow[]> {
+export async function detectFormRows(
+  page: PDFPageProxy,
+  pageCoords: number | ViewportLike,
+): Promise<FormRow[]> {
   const opList = await page.getOperatorList()
   const OPS = pdfjsLib.OPS
   const hLines: RawH[] = []
@@ -90,25 +98,21 @@ export async function detectFormRows(page: PDFPageProxy, pdfPageHeight: number):
 
     const minMax = opList.argsArray[i][2] as Float32Array | number[] | undefined
     if (!minMax || minMax.length < 4) continue
-    // Transform the bbox corners through the active CTM and renormalise.
-    const [ax, ay] = applyMat(ctm, minMax[0], minMax[1])
-    const [bx, by] = applyMat(ctm, minMax[2], minMax[3])
-    const xmin = Math.min(ax, bx), xmax = Math.max(ax, bx)
-    const ymin = Math.min(ay, by), ymax = Math.max(ay, by)
+    const { xmin, ymin, xmax, ymax } = pathBoxToPageBox(ctm, minMax, pageCoords)
     const w = xmax - xmin
     const h = ymax - ymin
 
     if (h < 1 && w > 30) {
-      hLines.push({ topY: pdfPageHeight - ymax, xStart: xmin, xEnd: xmax })
+      hLines.push({ topY: ymin, xStart: xmin, xEnd: xmax })
     } else if (w < 1 && h > 10) {
       vLines.push({
         x: xmin,
-        topYTop:    pdfPageHeight - ymax,
-        topYBottom: pdfPageHeight - ymin,
+        topYTop: ymin,
+        topYBottom: ymax,
       })
     } else if (w >= RECT_MIN_W && w <= RECT_MAX_W && h >= RECT_MIN_H && h <= RECT_MAX_H) {
       rectCells.push({
-        topY: pdfPageHeight - ymax,
+        topY: ymin,
         height: h,
         xStart: xmin,
         xEnd: xmax,
@@ -247,6 +251,34 @@ export async function detectFormRows(page: PDFPageProxy, pdfPageHeight: number):
   return filtered
 }
 
+function pathBoxToPageBox(
+  ctm: Mat,
+  minMax: Float32Array | number[],
+  pageCoords: number | ViewportLike,
+): { xmin: number; ymin: number; xmax: number; ymax: number } {
+  const [x0, y0, x1, y1] = minMax
+  const points = [
+    applyMat(ctm, x0, y0),
+    applyMat(ctm, x0, y1),
+    applyMat(ctm, x1, y0),
+    applyMat(ctm, x1, y1),
+  ].map(([x, y]) => toPagePoint(pageCoords, x, y))
+  const xs = points.map(([x]) => x)
+  const ys = points.map(([, y]) => y)
+  return {
+    xmin: Math.min(...xs),
+    ymin: Math.min(...ys),
+    xmax: Math.max(...xs),
+    ymax: Math.max(...ys),
+  }
+}
+
+function toPagePoint(pageCoords: number | ViewportLike, x: number, y: number): [number, number] {
+  if (typeof pageCoords === 'number') return [x, pageCoords - y]
+  const [vx, vy] = pageCoords.convertToViewportPoint(x, y)
+  return [vx, vy]
+}
+
 function overlapFraction(a: FormRow, b: FormRow): number {
   const ix = Math.max(0, Math.min(a.xEnd, b.xEnd) - Math.max(a.xStart, b.xStart))
   const iy = Math.max(0, Math.min(a.topY + a.height, b.topY + b.height) - Math.max(a.topY, b.topY))
@@ -331,8 +363,9 @@ export function findRowAt(
   let bestDy = Infinity
   for (const r of rows) {
     if (xPdf < r.xStart - 6 || xPdf > r.xEnd + 6) continue
-    const center = r.topY + r.height / 2
-    const dy = Math.abs(yPdf - center)
+    const top = r.topY
+    const bottom = r.topY + r.height
+    const dy = yPdf < top ? top - yPdf : yPdf > bottom ? yPdf - bottom : 0
     if (dy < bestDy && dy < threshold) { best = r; bestDy = dy }
   }
   return best
