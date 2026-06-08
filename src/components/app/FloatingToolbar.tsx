@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Slider } from '@/components/ui/slider'
 import { DATE_FORMAT_OPTIONS, findDateFormatId } from '@/utils/dateFormats'
+import { useT } from '@/utils/useT'
 
 interface PenSettings {
   color: string
@@ -34,11 +35,11 @@ interface FloatingToolbarProps {
 }
 
 export const PEN_COLORS = [
-  { value: '#0a1f3d', label: 'Black' },
-  { value: '#1d4ed8', label: 'Blue' },
-  { value: '#dc2626', label: 'Red' },
-  { value: '#16a34a', label: 'Green' },
-  { value: '#facc15', label: 'Yellow' },
+  { value: '#0a1f3d', labelKey: 'color.black' },
+  { value: '#1d4ed8', labelKey: 'color.blue' },
+  { value: '#dc2626', labelKey: 'color.red' },
+  { value: '#16a34a', labelKey: 'color.green' },
+  { value: '#facc15', labelKey: 'color.yellow' },
 ]
 
 interface PenControlsProps {
@@ -47,17 +48,19 @@ interface PenControlsProps {
 }
 
 export function PenControls({ value, onChange }: PenControlsProps) {
+  const t = useT()
   return (
     <>
       <div>
-        <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">Color</div>
+        <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('ft.color')}</div>
         <div className="flex items-center gap-1.5">
           {PEN_COLORS.map((c) => (
             <button
               key={c.value}
               type="button"
               onClick={() => onChange({ color: c.value })}
-              title={c.label}
+              title={t(c.labelKey)}
+              aria-label={t(c.labelKey)}
               className={`size-6 rounded-full border-2 ${value.color === c.value ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}
               style={{ background: c.value }}
             />
@@ -68,7 +71,7 @@ export function PenControls({ value, onChange }: PenControlsProps) {
               matches the row. The wrapper handles the click without
               losing the colour-input semantics for keyboard users. */}
           <label
-            title="Custom colour"
+            title={t('ft.custom_color')}
             className={`relative size-6 cursor-pointer rounded-full border-2 ${PEN_COLORS.some((c) => c.value === value.color) ? 'border-border' : 'border-primary ring-2 ring-primary/20'}`}
             style={{
               background: 'conic-gradient(from 0deg, #f43f5e, #f59e0b, #84cc16, #06b6d4, #6366f1, #d946ef, #f43f5e)',
@@ -78,7 +81,7 @@ export function PenControls({ value, onChange }: PenControlsProps) {
               type="color"
               value={value.color}
               onChange={(e) => onChange({ color: e.target.value })}
-              aria-label="Custom colour"
+              aria-label={t('ft.custom_color')}
               className="absolute inset-0 size-full cursor-pointer opacity-0"
             />
           </label>
@@ -86,7 +89,7 @@ export function PenControls({ value, onChange }: PenControlsProps) {
       </div>
       <div>
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Width</span>
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('ft.width')}</span>
           <span className="text-xs tabular-nums">{value.width.toFixed(1)} pt</span>
         </div>
         <Slider
@@ -99,7 +102,7 @@ export function PenControls({ value, onChange }: PenControlsProps) {
       </div>
       <div>
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Opacity</span>
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('ft.opacity')}</span>
           <span className="text-xs tabular-nums">{Math.round(value.opacity * 100)}%</span>
         </div>
         <Slider
@@ -117,6 +120,7 @@ export function PenControls({ value, onChange }: PenControlsProps) {
 export function FloatingToolbar({
   anchorLeft, anchorTop, richText, date, pen, onDelete,
 }: FloatingToolbarProps) {
+  const t = useT()
   const [, force] = useState(0)
 
   useEffect(() => {
@@ -151,13 +155,13 @@ export function FloatingToolbar({
     >
       {richText && (
         <>
-          <Toggle size="sm" pressed={active('bold')} onPressedChange={() => exec('bold')} aria-label="Bold" onMouseDown={keepEditorFocus}>
+          <Toggle size="sm" pressed={active('bold')} onPressedChange={() => exec('bold')} aria-label={t('ft.bold')} onMouseDown={keepEditorFocus}>
             <Bold className="size-4" />
           </Toggle>
-          <Toggle size="sm" pressed={active('italic')} onPressedChange={() => exec('italic')} aria-label="Italic" onMouseDown={keepEditorFocus}>
+          <Toggle size="sm" pressed={active('italic')} onPressedChange={() => exec('italic')} aria-label={t('ft.italic')} onMouseDown={keepEditorFocus}>
             <Italic className="size-4" />
           </Toggle>
-          <Toggle size="sm" pressed={active('underline')} onPressedChange={() => exec('underline')} aria-label="Underline" onMouseDown={keepEditorFocus}>
+          <Toggle size="sm" pressed={active('underline')} onPressedChange={() => exec('underline')} aria-label={t('ft.underline')} onMouseDown={keepEditorFocus}>
             <Underline className="size-4" />
           </Toggle>
           <Separator orientation="vertical" className="mx-1 h-5" />
@@ -217,10 +221,10 @@ export function FloatingToolbar({
           size="sm"
           onClick={(e) => { e.stopPropagation(); onDelete() }}
           className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-          aria-label="Delete"
+          aria-label={t('ft.delete')}
         >
           <Trash2 className="size-4" />
-          Delete
+          {t('ft.delete')}
         </Button>
       )}
     </div>

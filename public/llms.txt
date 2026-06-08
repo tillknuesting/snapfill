@@ -50,14 +50,16 @@ The application is fully client-side. There is no backend.
 
 ## Languages
 
-Twelve UI languages with full string coverage:
+Seventeen UI languages with localized core strings and English fallback:
 English, German (Deutsch), Spanish (Español), French (Français), Chinese
 (中文 简体), Japanese (日本語), Arabic (العربية, RTL), Hindi (हिन्दी),
 Bengali (বাংলা), Russian (Русский), Portuguese (Português),
-Indonesian (Bahasa Indonesia).
+Indonesian (Bahasa Indonesia), Turkish (Türkçe), Vietnamese (Tiếng Việt),
+Thai (ไทย), Korean (한국어), Italian (Italiano).
 
 Detected automatically from the browser locale on first open; user can
-override via the language picker (persisted in localStorage).
+override via the language picker (persisted in localStorage). Unsupported
+browser locales default to English.
 
 ## Themes
 

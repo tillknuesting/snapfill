@@ -37,8 +37,8 @@ export function EmptyState({ onFile, onRecentFile }: EmptyStateProps) {
     if (!f) return
     if (f.type !== 'application/pdf') {
       // Show the file's actual type so the user knows what they dropped.
-      const desc = f.type ? `a ${f.type} file` : 'this file'
-      setDropError(`${f.name} is ${desc} — only PDFs can be opened here.`)
+      const desc = f.type ? t('drop.file_type', { type: f.type }) : t('drop.this_file')
+      setDropError(t('drop.not_pdf', { name: f.name, type: desc }))
       // Auto-clear after a moment so the empty state gets back to its
       // calm default if the user just made one wrong drop.
       setTimeout(() => setDropError(null), 4000)
@@ -66,7 +66,7 @@ export function EmptyState({ onFile, onRecentFile }: EmptyStateProps) {
   }
 
   async function clearAll() {
-    if (!confirm('Remove all cached recent PDFs?')) return
+    if (!confirm(t('confirm.clear_recent_pdfs'))) return
     await clearRecentFiles()
     setRecents([])
   }

@@ -5,6 +5,7 @@ import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { usePdfStore } from '@/store/usePdfStore'
+import { useT } from '@/utils/useT'
 import { PdfPage } from './PdfPage'
 import type { FontFamily, PageInfo } from '@/types'
 
@@ -21,6 +22,7 @@ interface PdfViewerProps {
 }
 
 export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPagesLoaded }: PdfViewerProps) {
+  const t = useT()
   const pdfBytes = usePdfStore((s) => s.pdfBytes)
   const fileName = usePdfStore((s) => s.fileName)
   const setPages = usePdfStore((s) => s.setPages)
@@ -33,7 +35,7 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
   // Surfaced when pdfjs.getDocument rejects (corrupt file, password-protected
   // PDF we can't decrypt, non-PDF dropped through). Without this the user
   // would stare at the loading spinner forever.
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<{ key?: string; message?: string } | null>(null)
   const closePdf = usePdfStore((s) => s.closePdf)
   const containerWidth = baseWidth * zoom
 
@@ -80,10 +82,10 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
       // Common pdfjs error names map to user-facing messages.
       const e = err as { name?: string; message?: string }
       const message = e?.name === 'PasswordException'
-        ? 'This PDF is password-protected. Open it in another tool, save without the password, then try again.'
+        ? { key: 'pdf.error.password' }
         : e?.name === 'InvalidPDFException'
-        ? "This file isn't a valid PDF — the contents look corrupt or it's not really a PDF."
-        : (e?.message || 'Could not open this PDF.')
+        ? { key: 'pdf.error.invalid' }
+        : (e?.message ? { message: e.message } : { key: 'pdf.error.generic' })
       setLoadError(message)
     })
     return () => {
@@ -134,18 +136,18 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
         <div className="flex flex-col items-center gap-3 px-6 text-center">
           <AlertTriangle className="size-8 text-destructive" aria-hidden="true" />
           <div>
-            <div className="text-sm font-medium">Couldn't open this PDF</div>
+            <div className="text-sm font-medium">{t('pdf.error.title')}</div>
             {fileName && (
               <div className="mt-1 max-w-xs truncate text-xs text-muted-foreground">
                 {fileName}
               </div>
             )}
             <div className="mx-auto mt-3 max-w-sm text-sm text-muted-foreground">
-              {loadError}
+              {loadError.key ? t(loadError.key) : loadError.message}
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={closePdf}>
-            Close this PDF
+            {t('pdf.close')}
           </Button>
         </div>
       </div>
@@ -163,7 +165,7 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
         <div className="flex flex-col items-center gap-3 px-6 text-center">
           <Loader2 className="size-8 animate-spin text-primary" aria-hidden="true" />
           <div>
-            <div className="text-sm font-medium">Loading PDF…</div>
+            <div className="text-sm font-medium">{t('pdf.loading')}</div>
             {fileName && (
               <div className="mt-1 max-w-xs truncate text-xs text-muted-foreground">
                 {fileName}

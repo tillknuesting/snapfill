@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { detectLang, isRTL, persistLang, translate, LANGS, type Lang } from './i18n'
+import {
+  detectLang,
+  isRTL,
+  persistLang,
+  translate,
+  LANGS,
+  TRANSLATION_KEYS,
+  ownTranslationsForTest,
+  type Lang,
+} from './i18n'
 
 const STORAGE_KEY = 'pdfhelper.lang'
 
@@ -42,9 +51,8 @@ describe('detectLang', () => {
 
   it('returns English for unsupported browser locales', () => {
     localStorage.removeItem(STORAGE_KEY)
-    // Unsupported locale (Korean) — must fall back to English. (ja and zh
-    // ARE supported now, so picking a still-unbundled locale.)
-    Object.defineProperty(navigator, 'language', { value: 'ko-KR', configurable: true })
+    // Unsupported locale — must fall back to English.
+    Object.defineProperty(navigator, 'language', { value: 'nl-NL', configurable: true })
     expect(detectLang()).toBe('en')
   })
 
@@ -65,6 +73,21 @@ describe('detectLang', () => {
       ['pt-BR', 'pt'],
       ['pt-PT', 'pt'],
       ['id-ID', 'id'],
+    ]
+    for (const [locale, expected] of cases) {
+      localStorage.removeItem(STORAGE_KEY)
+      Object.defineProperty(navigator, 'language', { value: locale, configurable: true })
+      expect(detectLang(), `expected ${locale} → ${expected}`).toBe(expected)
+    }
+  })
+
+  it('detects added high-value non-English markets from browser locale', () => {
+    const cases: Array<[string, Lang]> = [
+      ['tr-TR', 'tr'],
+      ['vi-VN', 'vi'],
+      ['th-TH', 'th'],
+      ['ko-KR', 'ko'],
+      ['it-IT', 'it'],
     ]
     for (const [locale, expected] of cases) {
       localStorage.removeItem(STORAGE_KEY)
@@ -118,19 +141,19 @@ describe('LANGS catalog', () => {
     expect(LANGS.find((l) => l.code === 'en')).toBeDefined()
   })
 
-  it('every key present in English exists in every other language too', () => {
-    // Cross-language coverage check — catches accidentally missing
-    // translations when adding a new key.
-    const referenceKeys = Object.keys((translate.length, {})) // placeholder
-    // Reach into the dict via a sample of known keys.
-    const sampleKeys = ['tb.open', 'tb.add_text', 'tb.download', 'es.heading', 'ob.welcome.title', 'ob.skip']
-    for (const code of LANGS.map((l) => l.code)) {
-      for (const k of sampleKeys) {
-        const v = translate(k, code)
-        expect(v.length, `${code} ${k}`).toBeGreaterThan(0)
-        expect(v, `${code} ${k}`).not.toBe(k)
-      }
+  it('keeps complete translations aligned with the English template', () => {
+    const fullyTranslated: Lang[] = ['en', 'de', 'tr', 'vi', 'th', 'ko', 'it']
+    for (const code of fullyTranslated) {
+      const own = ownTranslationsForTest(code)
+      const missing = TRANSLATION_KEYS.filter((k) => !own[k]?.trim())
+      expect(missing, `${code} missing translations`).toEqual([])
     }
-    void referenceKeys
+  })
+
+  it('keeps every translated language in the picker catalog', () => {
+    const codes = new Set(LANGS.map((l) => l.code))
+    for (const code of ['en', 'de', 'tr', 'vi', 'th', 'ko', 'it'] satisfies Lang[]) {
+      expect(codes.has(code), code).toBe(true)
+    }
   })
 })

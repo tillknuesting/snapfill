@@ -32,6 +32,7 @@ const DIALOG_THUMB_WIDTH = 72
  * reorder pages of the open document by dragging a thumb between others.
  */
 export function PdfThumbnailRail({ pages, onReorder, onRotatePage, onDeletePage }: PdfThumbnailRailProps) {
+  const t = useT()
   const [activeIdx, setActiveIdx] = useState(0)
   const [draggingIdx, setDraggingIdx] = useState<number | null>(null)
   const [revealedActionIdx, setRevealedActionIdx] = useState<number | null>(null)
@@ -113,7 +114,7 @@ export function PdfThumbnailRail({ pages, onReorder, onRotatePage, onDeletePage 
     <>
       <aside
         className="frosted hidden w-[128px] shrink-0 overflow-y-auto border-l py-3 lg:block"
-        aria-label="Page thumbnails"
+        aria-label={t('pages.thumbnails')}
       >
         <ul
           className="flex flex-col items-center gap-3 px-2"

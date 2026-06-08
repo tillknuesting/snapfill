@@ -1878,9 +1878,14 @@ test.describe('language picker', () => {
       ru: /Заполнить и подписать/,
       pt: /Preencher & assinar/,
       id: /Isi & tanda tangan/,
+      tr: /PDF doldur ve imzala/,
+      vi: /Điền & ký PDF/,
+      th: /กรอกและเซ็น PDF/,
+      ko: /PDF 작성 및 서명/,
+      it: /Compila e firma un PDF/,
     }
 
-    for (const code of ['de', 'fr', 'es', 'zh', 'ja', 'hi', 'ar', 'bn', 'ru', 'pt', 'id', 'en'] as const) {
+    for (const code of ['de', 'fr', 'es', 'zh', 'ja', 'hi', 'ar', 'bn', 'ru', 'pt', 'id', 'tr', 'vi', 'th', 'ko', 'it', 'en'] as const) {
       // Radix Popover sometimes lingers between rapid open/close cycles —
       // give it a beat to settle and dismiss any stale popover before the
       // next trigger click.

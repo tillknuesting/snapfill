@@ -5,6 +5,7 @@ import { FONT_FAMILIES, normalizeFamily } from '@/utils/fonts'
 import { formatDate } from '@/utils/dateFormats'
 import { pointsToSmoothPath } from '@/utils/drawing'
 import { assertNever } from '@/utils/assertNever'
+import { useT } from '@/utils/useT'
 import type {
   Annotation as AnnotType, DrawingAnnotation, ImageAnnotation, PageInfo, RedactionAnnotation, TextAnnotation, TextEditAnnotation,
 } from '@/types'
@@ -654,6 +655,7 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
 export const Annotation = memo(AnnotationImpl)
 
 function DeleteButton({ onClick, visible }: { onClick: () => void; visible: boolean }) {
+  const t = useT()
   return (
     <button
       type="button"
@@ -664,7 +666,7 @@ function DeleteButton({ onClick, visible }: { onClick: () => void; visible: bool
         'bg-destructive text-destructive-foreground shadow',
         visible ? 'flex' : 'hidden',
       )}
-      aria-label="Delete"
+      aria-label={t('ft.delete')}
     >
       <X className="size-3" />
     </button>

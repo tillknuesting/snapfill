@@ -223,7 +223,7 @@ export function Toolbar(props: ToolbarProps) {
 
   async function handleImagePicker(file: File) {
     const v = validateImageFile(file)
-    if (!v.ok) { alert(v.reason); return }
+    if (!v.ok) { alert(t(v.reasonKey, v.vars)); return }
     try {
       const dataUrl = await fileToDataUrl(file)
       const dims = await probeImageDimensions(dataUrl)
@@ -234,17 +234,17 @@ export function Toolbar(props: ToolbarProps) {
       const MAX_SIDE = 5000
       const MAX_PIXELS = 20_000_000
       if (dims.width > MAX_SIDE || dims.height > MAX_SIDE) {
-        alert(`Image is too large to embed (${dims.width}×${dims.height}). Max ${MAX_SIDE}×${MAX_SIDE} pixels per side.`)
+        alert(t('img.err.too_large_side', { width: dims.width, height: dims.height, max: MAX_SIDE }))
         return
       }
       if (dims.width * dims.height > MAX_PIXELS) {
-        alert(`Image is too large to embed (${dims.width * dims.height} pixels). Max ${MAX_PIXELS / 1_000_000} MP.`)
+        alert(t('img.err.too_large_pixels', { pixels: dims.width * dims.height, max: MAX_PIXELS / 1_000_000 }))
         return
       }
       setPendingImage({ dataUrl, mime: v.mime, width: dims.width, height: dims.height })
       setMode('image')
     } catch (err) {
-      alert('Could not read image: ' + (err as Error).message)
+      alert(t('err.read_image', { message: (err as Error).message }))
     }
   }
 
@@ -399,7 +399,7 @@ export function Toolbar(props: ToolbarProps) {
               onChange={(e) => setPageNumbers({ enabled: e.target.checked })}
               className="size-4 shrink-0 cursor-pointer accent-primary"
             />
-            <span>Insert page numbers</span>
+            <span>{t('pn.enabled')}</span>
           </label>
           <span
             aria-hidden="true"
@@ -410,47 +410,47 @@ export function Toolbar(props: ToolbarProps) {
                 : 'border-border bg-background text-muted-foreground',
             )}
           >
-            {pageNumbers.enabled ? 'Added' : 'Not added'}
+            {pageNumbers.enabled ? t('pn.status_on') : t('pn.status_off')}
           </span>
         </div>
         <label className="block space-y-1.5 text-sm">
-          <span className="text-xs font-medium text-muted-foreground">Format</span>
+          <span className="text-xs font-medium text-muted-foreground">{t('pn.format')}</span>
           <Select
             value={pageNumbers.format}
             onValueChange={(v) => setPageNumbers({ format: v as typeof pageNumbers.format })}
           >
-            <SelectTrigger className="w-full" size="sm" disabled={!hasPdf} aria-label="Page number format">
+            <SelectTrigger className="w-full" size="sm" disabled={!hasPdf} aria-label={t('pn.format_aria')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="page-of-total">Page 1 of 5</SelectItem>
-              <SelectItem value="page">Page 1</SelectItem>
+              <SelectItem value="page-of-total">{t('pn.format_page_total')}</SelectItem>
+              <SelectItem value="page">{t('pn.format_page')}</SelectItem>
               <SelectItem value="number">1</SelectItem>
             </SelectContent>
           </Select>
         </label>
         <label className="block space-y-1.5 text-sm">
-          <span className="text-xs font-medium text-muted-foreground">Position</span>
+          <span className="text-xs font-medium text-muted-foreground">{t('pn.position')}</span>
           <Select
             value={pageNumbers.position}
             onValueChange={(v) => setPageNumbers({ position: v as typeof pageNumbers.position })}
           >
-            <SelectTrigger className="w-full" size="sm" disabled={!hasPdf} aria-label="Page number position">
+            <SelectTrigger className="w-full" size="sm" disabled={!hasPdf} aria-label={t('pn.position_aria')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="bottom-center">Bottom center</SelectItem>
-              <SelectItem value="bottom-right">Bottom right</SelectItem>
-              <SelectItem value="bottom-left">Bottom left</SelectItem>
-              <SelectItem value="top-center">Top center</SelectItem>
-              <SelectItem value="top-right">Top right</SelectItem>
-              <SelectItem value="top-left">Top left</SelectItem>
+              <SelectItem value="bottom-center">{t('pn.bottom_center')}</SelectItem>
+              <SelectItem value="bottom-right">{t('pn.bottom_right')}</SelectItem>
+              <SelectItem value="bottom-left">{t('pn.bottom_left')}</SelectItem>
+              <SelectItem value="top-center">{t('pn.top_center')}</SelectItem>
+              <SelectItem value="top-right">{t('pn.top_right')}</SelectItem>
+              <SelectItem value="top-left">{t('pn.top_left')}</SelectItem>
             </SelectContent>
           </Select>
         </label>
         <div className="grid grid-cols-3 gap-2">
           <label className="block space-y-1.5 text-sm">
-            <span className="text-xs font-medium text-muted-foreground">Start</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('pn.start')}</span>
             <Input
               type="number"
               min={0}
@@ -462,7 +462,7 @@ export function Toolbar(props: ToolbarProps) {
             />
           </label>
           <label className="block space-y-1.5 text-sm">
-            <span className="text-xs font-medium text-muted-foreground">Size</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('pn.size')}</span>
             <Input
               type="number"
               min={6}
@@ -474,7 +474,7 @@ export function Toolbar(props: ToolbarProps) {
             />
           </label>
           <label className="block space-y-1.5 text-sm">
-            <span className="text-xs font-medium text-muted-foreground">Margin</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('pn.margin')}</span>
             <Input
               type="number"
               min={8}
@@ -487,14 +487,14 @@ export function Toolbar(props: ToolbarProps) {
           </label>
         </div>
         <label className="block space-y-1.5 text-sm">
-          <span className="text-xs font-medium text-muted-foreground">Color</span>
+          <span className="text-xs font-medium text-muted-foreground">{t('pn.color')}</span>
           <div className="flex h-9 items-center gap-1.5">
             {['#0a1f3d', '#64748b', '#111827', '#1d4ed8'].map((c) => (
               <button
                 key={c}
                 type="button"
                 disabled={!hasPdf}
-                aria-label={`Page number color ${c}`}
+                aria-label={t('pn.color_value', { color: c })}
                 onClick={() => setPageNumbers({ color: c })}
                 className={cn(
                   'size-6 rounded-full border-2 disabled:opacity-50',
@@ -599,8 +599,8 @@ export function Toolbar(props: ToolbarProps) {
                     key={c.value}
                     type="button"
                     onClick={() => handleColorChange(c.value)}
-                    title={c.label}
-                    aria-label={c.label}
+                    title={t(c.labelKey)}
+                    aria-label={t(c.labelKey)}
                     className={cn(
                       'size-6 rounded-full border-2',
                       colorValue === c.value
@@ -724,7 +724,7 @@ export function Toolbar(props: ToolbarProps) {
                   <div className="rounded px-2 py-2">
                     <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                       <Hash className="size-4 shrink-0" />
-                      <span>Page numbers</span>
+                      <span>{t('pn.label')}</span>
                     </div>
                     {renderPageNumberControls()}
                   </div>
@@ -765,7 +765,7 @@ export function Toolbar(props: ToolbarProps) {
                     disabled={!hasPdf || !hasAnnotations}
                     onClick={() => {
                       setMobileMoreOpen(false)
-                      if (confirm('Remove all annotations?')) clearAnnotations()
+                      if (confirm(t('confirm.clear_annotations'))) clearAnnotations()
                     }}
                   />
                   <Separator className="my-1" />
@@ -1121,7 +1121,7 @@ export function Toolbar(props: ToolbarProps) {
                 variant={pageNumbers.enabled ? 'default' : 'ghost'}
                 size="sm"
                 disabled={!hasPdf}
-                aria-label="Page numbers"
+                aria-label={t('pn.label')}
                 aria-pressed={pageNumbers.enabled}
                 className={cn(
                   'h-10 shrink-0 sm:h-8',
@@ -1132,7 +1132,7 @@ export function Toolbar(props: ToolbarProps) {
               </Button>
             </PopoverTrigger>
           </TooltipTrigger>
-          <TooltipContent side="bottom">Page numbers</TooltipContent>
+          <TooltipContent side="bottom">{t('pn.label')}</TooltipContent>
         </Tooltip>
         <PopoverContent className="w-72 p-3" align="start">
           {renderPageNumberControls()}
@@ -1225,7 +1225,7 @@ export function Toolbar(props: ToolbarProps) {
         label={t('tb.clear_all')}
         disabled={!hasPdf || !hasAnnotations}
         onClick={() => {
-          if (confirm('Remove all annotations?')) clearAnnotations()
+          if (confirm(t('confirm.clear_annotations'))) clearAnnotations()
         }}
       />
 

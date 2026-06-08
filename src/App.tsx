@@ -22,6 +22,7 @@ import {
 // import them dynamically below to keep the initial bundle small. Same
 // pattern as `buildPdf` in handleDownload.
 import { formatDate } from '@/utils/dateFormats'
+import { useT } from '@/utils/useT'
 import type { PDFPageProxy } from 'pdfjs-dist'
 import type { Annotation, CompressionLevel, FontFamily, PageInfo, RedactionAnnotation } from '@/types'
 
@@ -304,6 +305,7 @@ function AutoSaveRecentFile() {
 }
 
 export default function App() {
+  const t = useT()
   const pdfBytes = usePdfStore((s) => s.pdfBytes)
   const recentId = usePdfStore((s) => s.recentId)
   const mode = usePdfStore((s) => s.mode)
@@ -417,9 +419,9 @@ export default function App() {
         })
       }
     } catch (err) {
-      alert('Could not merge PDF: ' + (err as Error).message)
+      alert(t('err.merge_pdf', { message: (err as Error).message }))
     }
-  }, [pdfBytes, recentId, mergeIntoPdf])
+  }, [pdfBytes, recentId, mergeIntoPdf, t])
 
   const handleReorderPages = useCallback(async (newOrder: number[]) => {
     if (!pdfBytes) return
@@ -435,9 +437,9 @@ export default function App() {
         })
       }
     } catch (err) {
-      alert('Could not reorder pages: ' + (err as Error).message)
+      alert(t('err.reorder_pages', { message: (err as Error).message }))
     }
-  }, [pdfBytes, recentId, reorderPages])
+  }, [pdfBytes, recentId, reorderPages, t])
 
   const handleRotatePage = useCallback(async (pageIdx: number, direction: 'cw' | 'ccw') => {
     if (!pdfBytes) return
@@ -453,9 +455,9 @@ export default function App() {
         })
       }
     } catch (err) {
-      alert('Could not rotate page: ' + (err as Error).message)
+      alert(t('err.rotate_page', { message: (err as Error).message }))
     }
-  }, [pdfBytes, recentId, rotatePage])
+  }, [pdfBytes, recentId, rotatePage, t])
 
   const handleDeletePage = useCallback(async (pageIdx: number) => {
     if (!pdfBytes) return
@@ -471,9 +473,9 @@ export default function App() {
         })
       }
     } catch (err) {
-      alert('Could not delete page: ' + (err as Error).message)
+      alert(t('err.delete_page', { message: (err as Error).message }))
     }
-  }, [deletePage, pdfBytes, recentId])
+  }, [deletePage, pdfBytes, recentId, t])
 
   const handleSwitchTo = useCallback(async (id: string) => {
     const rec = await loadRecentFileFull(id)
@@ -504,7 +506,7 @@ export default function App() {
     } = usePdfStore.getState()
     if (!currentPdfBytes) return
     if (pages.length === 0) {
-      alert('PDF is still loading; please wait and try again.')
+      alert(t('err.pdf_loading'))
       return
     }
     const { compress = false, level = 'mid' } = opts
@@ -542,7 +544,7 @@ export default function App() {
       } catch (err) {
         console.warn('redacted download failed, trying source-page raster fallback:', err)
         try {
-          if (pdfPages.length === 0) throw new Error('PDF is still loading; please wait and try again.', { cause: err })
+          if (pdfPages.length === 0) throw new Error(t('err.pdf_loading'), { cause: err })
           const pageImages = await renderLoadedPagesToJpegs(pdfPages, pages.length, preset, {
             bakeLiveFormFields: true,
           })
@@ -568,7 +570,7 @@ export default function App() {
           return
         } catch (fallbackErr) {
           console.error('redacted download failed', fallbackErr)
-          alert('Could not build redacted PDF: ' + (fallbackErr as Error).message)
+          alert(t('err.redacted_pdf', { message: (fallbackErr as Error).message }))
           return
         }
       }
@@ -576,7 +578,7 @@ export default function App() {
 
     if (compress) {
       if (pdfPages.length === 0) {
-        alert('PDF is still loading; please wait and try again.')
+        alert(t('err.pdf_loading'))
         return
       }
       try {
@@ -615,7 +617,7 @@ export default function App() {
           return
         } catch (fallbackErr) {
           console.error('compressed download failed', fallbackErr)
-          alert('Could not build compressed PDF: ' + (fallbackErr as Error).message)
+          alert(t('err.compressed_pdf', { message: (fallbackErr as Error).message }))
           return
         }
       }
@@ -645,7 +647,7 @@ export default function App() {
         triggerDownload(out)
       } catch (err2) {
         console.error(err2)
-        alert('Could not build PDF: ' + (err2 as Error).message)
+        alert(t('err.build_pdf', { message: (err2 as Error).message }))
       }
     }
     function triggerDownload(out: Uint8Array) {
@@ -660,7 +662,7 @@ export default function App() {
       a.remove()
       URL.revokeObjectURL(url)
     }
-  }, [pdfPages])
+  }, [pdfPages, t])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -710,7 +712,11 @@ export default function App() {
   }, [mode, selectedId, removeAnnotation, setMode, setSelectedId, undo, redo, setPendingTextValue, setPendingDateMs])
 
   return (
-    <ErrorBoundary>
+    <ErrorBoundary strings={{
+      title: t('app.error.title'),
+      body: t('app.error.body'),
+      reload: t('app.error.reload'),
+    }}>
     <TooltipProvider>
       <Onboarding replayKey={tourReplayKey} />
       <AutoSaveRecentFile />

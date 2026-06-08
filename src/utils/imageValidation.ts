@@ -25,28 +25,52 @@ export interface ImageValidationOk {
 export interface ImageValidationErr {
   ok: false
   reason: string
+  reasonKey: string
+  vars?: Record<string, string | number>
 }
 
 export function validateImageFile(file: File): ImageValidationOk | ImageValidationErr {
-  if (file.size === 0) return { ok: false, reason: 'File is empty.' }
+  if (file.size === 0) {
+    return { ok: false, reasonKey: 'img.err.empty', reason: 'File is empty.' }
+  }
   if (file.size > MAX_IMAGE_BYTES) {
     const mb = (file.size / 1024 / 1024).toFixed(1)
-    return { ok: false, reason: `Image is too large (${mb} MB). Max 10 MB.` }
+    return {
+      ok: false,
+      reasonKey: 'img.err.too_large_mb',
+      vars: { mb },
+      reason: `Image is too large (${mb} MB). Max 10 MB.`,
+    }
   }
   const lower = file.name.toLowerCase()
   const dotIdx = lower.lastIndexOf('.')
   const ext = dotIdx >= 0 ? lower.slice(dotIdx + 1) : ''
   if (!ALLOWED_EXTS.has(ext)) {
-    return { ok: false, reason: `Unsupported file extension (.${ext || 'unknown'}). Allowed: png, jpg, jpeg, gif, webp.` }
+    return {
+      ok: false,
+      reasonKey: 'img.err.unsupported_extension',
+      vars: { ext: ext || 'unknown' },
+      reason: `Unsupported file extension (.${ext || 'unknown'}). Allowed: png, jpg, jpeg, gif, webp.`,
+    }
   }
   // Browsers sometimes report empty mime; fall back to extension-derived guess
   // but reject if `file.type` is set and contradicts.
   const mime = (file.type || mimeFromExt(ext)).toLowerCase()
   if (file.type && !ALLOWED_MIMES.has(file.type)) {
-    return { ok: false, reason: `Unsupported file type (${file.type}). Allowed: PNG, JPG, GIF, WebP.` }
+    return {
+      ok: false,
+      reasonKey: 'img.err.unsupported_type',
+      vars: { type: file.type },
+      reason: `Unsupported file type (${file.type}). Allowed: PNG, JPG, GIF, WebP.`,
+    }
   }
   if (!ALLOWED_MIMES.has(mime)) {
-    return { ok: false, reason: `Unsupported file type (${mime || 'unknown'}). Allowed: PNG, JPG, GIF, WebP.` }
+    return {
+      ok: false,
+      reasonKey: 'img.err.unsupported_type',
+      vars: { type: mime || 'unknown' },
+      reason: `Unsupported file type (${mime || 'unknown'}). Allowed: PNG, JPG, GIF, WebP.`,
+    }
   }
   return { ok: true, mime: mime as AllowedImageMime }
 }

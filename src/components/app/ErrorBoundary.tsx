@@ -3,6 +3,11 @@ import { Button } from '@/components/ui/button'
 
 interface Props {
   children: ReactNode
+  strings?: {
+    title: string
+    body: string
+    reload: string
+  }
 }
 
 interface State {
@@ -28,20 +33,24 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     const { error } = this.state
+    const strings = this.props.strings ?? {
+      title: 'Something went wrong.',
+      body: 'The app hit an unexpected error. Your most recent edits were auto-saved a moment ago and should reappear after reloading.',
+      reload: 'Reload',
+    }
     if (!error) return this.props.children
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="max-w-md text-center">
-          <h2 className="text-xl font-semibold">Something went wrong.</h2>
+          <h2 className="text-xl font-semibold">{strings.title}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            The app hit an unexpected error. Your most recent edits were
-            auto-saved a moment ago and should reappear after reloading.
+            {strings.body}
           </p>
           <pre className="mt-4 max-h-40 overflow-auto rounded border bg-muted p-3 text-left font-mono text-[11px] text-muted-foreground">
             {error.message}
           </pre>
           <Button className="mt-6" onClick={() => window.location.reload()}>
-            Reload
+            {strings.reload}
           </Button>
         </div>
       </div>
