@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Annotation, Mode, PageInfo, PageNumberSettings, WatermarkSettings } from '@/types'
+import type { Annotation, DrawingTool, Mode, PageInfo, PageNumberSettings, WatermarkSettings } from '@/types'
 import { detectLang, persistLang, type Lang } from '@/utils/i18n'
 import { DEFAULT_WATERMARK, normalizeWatermark } from '@/utils/watermark'
 import { DEFAULT_PAGE_NUMBERS, normalizePageNumbers } from '@/utils/pageNumbers'
@@ -26,6 +26,7 @@ interface PdfState {
   penColor: string
   penOpacity: number
   penWidth: number
+  drawingTool: DrawingTool
   zoom: number
   formFieldEdits: Map<string, string | boolean>
   watermark: WatermarkSettings
@@ -89,6 +90,7 @@ interface PdfState {
   setPenColor: (color: string) => void
   setPenOpacity: (opacity: number) => void
   setPenWidth: (width: number) => void
+  setDrawingTool: (tool: DrawingTool) => void
   setZoom: (z: number) => void
   setFormField: (name: string, value: string | boolean) => void
   setWatermark: (patch: Partial<WatermarkSettings>) => void
@@ -118,6 +120,7 @@ export const usePdfStore = create<PdfState>((set, get) => ({
   penColor: '#0a1f3d',
   penOpacity: 1,
   penWidth: 2,
+  drawingTool: 'pen',
   zoom: 1,
   formFieldEdits: new Map(),
   watermark: DEFAULT_WATERMARK,
@@ -130,6 +133,7 @@ export const usePdfStore = create<PdfState>((set, get) => ({
       pdfBytes: null, fileName: '', recentId: null,
       annotations: [], pages: [], formFieldEdits: new Map(), watermark: DEFAULT_WATERMARK, pageNumbers: DEFAULT_PAGE_NUMBERS,
       selectedId: null, mode: 'idle',
+      drawingTool: 'pen',
       history: [[]], historyIdx: 0,
     }),
 
@@ -138,6 +142,7 @@ export const usePdfStore = create<PdfState>((set, get) => ({
       pdfBytes, fileName, recentId,
       annotations: [], pages: [], formFieldEdits: new Map(), watermark: DEFAULT_WATERMARK, pageNumbers: DEFAULT_PAGE_NUMBERS,
       selectedId: null, mode: 'idle',
+      drawingTool: 'pen',
       history: [[]], historyIdx: 0,
     }),
 
@@ -283,6 +288,7 @@ export const usePdfStore = create<PdfState>((set, get) => ({
   setPenColor: (penColor) => set({ penColor }),
   setPenOpacity: (penOpacity) => set({ penOpacity: Math.max(0, Math.min(1, penOpacity)) }),
   setPenWidth: (penWidth) => set({ penWidth: Math.max(0.5, Math.min(20, penWidth)) }),
+  setDrawingTool: (drawingTool) => set({ drawingTool }),
   setZoom: (zoom) => set({ zoom: Math.max(0.25, Math.min(4, zoom)) }),
   setFormField: (name, value) =>
     set((s) => {

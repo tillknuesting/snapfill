@@ -1,5 +1,5 @@
-import { useEffect, useState, type RefObject } from 'react'
-import { Bold, Calendar, Italic, Trash2, Underline } from 'lucide-react'
+import { useEffect, useState, type ComponentType, type RefObject } from 'react'
+import { ArrowRight, Bold, Calendar, Eraser, Highlighter, Italic, Minus, Pencil, SquarePen, Trash2, Underline } from 'lucide-react'
 import { Toggle } from '@/components/ui/toggle'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -10,12 +10,14 @@ import { DATE_FORMAT_OPTIONS, findDateFormatId } from '@/utils/dateFormats'
 import { useT } from '@/utils/useT'
 import { formatNumber, formatPercent } from '@/utils/i18n'
 import { usePdfStore } from '@/store/usePdfStore'
+import type { DrawingTool } from '@/types'
 
 interface PenSettings {
   color: string
   opacity: number
   width: number
-  onChange: (patch: { color?: string; opacity?: number; width?: number }) => void
+  tool?: DrawingTool
+  onChange: (patch: { color?: string; opacity?: number; width?: number; tool?: DrawingTool }) => void
 }
 
 interface FloatingToolbarProps {
@@ -45,16 +47,84 @@ export const PEN_COLORS = [
 ]
 
 interface PenControlsProps {
-  value: { color: string; opacity: number; width: number }
-  onChange: (patch: { color?: string; opacity?: number; width?: number }) => void
+  value: { color: string; opacity: number; width: number; tool?: DrawingTool }
+  onChange: (patch: { color?: string; opacity?: number; width?: number; tool?: DrawingTool }) => void
+  showTools?: boolean
+  showPresets?: boolean
 }
 
-export function PenControls({ value, onChange }: PenControlsProps) {
+const DRAWING_TOOLS: Array<{
+  id: DrawingTool
+  labelKey: string
+  icon: ComponentType<{ className?: string }>
+  patch: { color?: string; opacity?: number; width?: number; tool: DrawingTool }
+}> = [
+  { id: 'pen', labelKey: 'draw.tool.pen', icon: Pencil, patch: { tool: 'pen', color: '#0a1f3d', opacity: 1, width: 2 } },
+  { id: 'marker', labelKey: 'draw.tool.marker', icon: SquarePen, patch: { tool: 'marker', color: '#1d4ed8', opacity: 0.85, width: 4 } },
+  { id: 'highlighter', labelKey: 'draw.tool.highlighter', icon: Highlighter, patch: { tool: 'highlighter', color: '#facc15', opacity: 0.35, width: 10 } },
+  { id: 'line', labelKey: 'draw.tool.line', icon: Minus, patch: { tool: 'line' } },
+  { id: 'arrow', labelKey: 'draw.tool.arrow', icon: ArrowRight, patch: { tool: 'arrow' } },
+  { id: 'eraser', labelKey: 'draw.tool.eraser', icon: Eraser, patch: { tool: 'eraser' } },
+]
+
+const PEN_PRESETS = [
+  { labelKey: 'draw.preset.pen', patch: { tool: 'pen' as const, color: '#0a1f3d', opacity: 1, width: 2 } },
+  { labelKey: 'draw.preset.red_pen', patch: { tool: 'pen' as const, color: '#dc2626', opacity: 1, width: 2 } },
+  { labelKey: 'draw.preset.marker', patch: { tool: 'marker' as const, color: '#1d4ed8', opacity: 0.85, width: 4 } },
+  { labelKey: 'draw.preset.highlighter', patch: { tool: 'highlighter' as const, color: '#facc15', opacity: 0.35, width: 10 } },
+]
+
+export function PenControls({ value, onChange, showTools = false, showPresets = false }: PenControlsProps) {
   const t = useT()
   const lang = usePdfStore((s) => s.lang)
   const widthLabel = formatNumber(lang, value.width, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
   return (
     <>
+      {showTools && value.tool && (
+        <div>
+          <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('draw.tool')}</div>
+          <div className="grid grid-cols-3 gap-1">
+            {DRAWING_TOOLS.map(({ id, labelKey, icon: Icon, patch }) => (
+              <Toggle
+                key={id}
+                size="sm"
+                pressed={value.tool === id}
+                onPressedChange={(pressed) => {
+                  if (pressed) onChange(patch)
+                }}
+                aria-label={t(labelKey)}
+                className="h-8 justify-start gap-1.5 px-2 text-xs"
+              >
+                <Icon className="size-3.5 shrink-0" />
+                <span className="truncate">{t(labelKey)}</span>
+              </Toggle>
+            ))}
+          </div>
+        </div>
+      )}
+      {showPresets && (
+        <div>
+          <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('draw.presets')}</div>
+          <div className="grid grid-cols-2 gap-1">
+            {PEN_PRESETS.map(({ labelKey, patch }) => (
+              <Button
+                key={labelKey}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onChange(patch)}
+                className="h-8 justify-start gap-1.5 px-2 text-xs"
+              >
+                <span
+                  className="size-3 rounded-full border"
+                  style={{ background: patch.color, opacity: patch.opacity }}
+                />
+                <span className="truncate">{t(labelKey)}</span>
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
       <div>
         <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('ft.color')}</div>
         <div className="flex items-center gap-1.5">

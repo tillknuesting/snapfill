@@ -686,6 +686,49 @@ test.describe('drawing mode', () => {
     const d = await path.getAttribute('d')
     expect(d ?? '').toMatch(/^M[\s-\d.]+/)
   })
+
+  test('drawing tools support highlighter, arrow, undo stroke, and eraser', async ({ page }) => {
+    await openFixture(page, /IRS 1040 \(2022\)/)
+    await page.getByRole('button', { name: /^Draw$/ }).click()
+
+    const firstPage = page.locator('[data-page-idx="0"]')
+    const box = await firstPage.boundingBox()
+    if (!box) throw new Error('first page bbox unavailable')
+    const annotationPaths = firstPage.locator('[data-id] > svg > path')
+
+    const penSettings = page.getByRole('button', { name: /^Pen settings$/ })
+    await penSettings.click()
+    let popover = page.locator('[data-slot="popover-content"]').last()
+    await popover.getByRole('button', { name: /^Highlighter$/ }).first().click()
+
+    await page.mouse.move(box.x + 210, box.y + 330)
+    await page.mouse.down()
+    await page.mouse.move(box.x + 330, box.y + 330, { steps: 8 })
+    await page.mouse.up()
+    await expect(annotationPaths).toHaveCount(1)
+    await expect(annotationPaths.first()).toHaveAttribute('stroke', '#facc15')
+    await expect(annotationPaths.first()).toHaveAttribute('stroke-opacity', '0.35')
+
+    await penSettings.click()
+    popover = page.locator('[data-slot="popover-content"]').last()
+    await popover.getByRole('button', { name: /^Arrow$/ }).click()
+
+    await page.mouse.move(box.x + 230, box.y + 380)
+    await page.mouse.down()
+    await page.mouse.move(box.x + 340, box.y + 420, { steps: 8 })
+    await page.mouse.up()
+    await expect(annotationPaths).toHaveCount(2)
+    await expect(annotationPaths.nth(1)).toHaveAttribute('d', /M .* M /)
+
+    await page.getByRole('button', { name: /^Undo stroke$/ }).click()
+    await expect(annotationPaths).toHaveCount(1)
+
+    await penSettings.click()
+    popover = page.locator('[data-slot="popover-content"]').last()
+    await popover.getByRole('button', { name: /^Eraser$/ }).click()
+    await firstPage.click({ position: { x: 270, y: 330 } })
+    await expect(annotationPaths).toHaveCount(0)
+  })
 })
 
 test.describe('zoom controls', () => {

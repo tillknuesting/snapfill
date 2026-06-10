@@ -44,6 +44,7 @@ beforeEach(() => {
     penColor: '#0a1f3d',
     penOpacity: 1,
     penWidth: 2,
+    drawingTool: 'pen',
     zoom: 1,
     formFieldEdits: new Map(),
     watermark: DEFAULT_WATERMARK,

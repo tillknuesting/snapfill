@@ -12,7 +12,7 @@ function reset() {
     pdfBytes: null, fileName: '', annotations: [], pages: [], mode: 'idle',
     selectedId: null, pendingSignature: null, pendingTextValue: null,
     pendingDateMs: null, pendingImage: null, sigColor: '#0a1f3d', penColor: '#0a1f3d',
-    penOpacity: 1, penWidth: 2, zoom: 1, formFieldEdits: new Map(),
+    penOpacity: 1, penWidth: 2, drawingTool: 'pen', zoom: 1, formFieldEdits: new Map(),
     watermark: DEFAULT_WATERMARK, pageNumbers: DEFAULT_PAGE_NUMBERS,
     lang: 'en',
   })

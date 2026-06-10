@@ -4,6 +4,10 @@ export type FontFamily = 'helvetica' | 'times' | 'courier'
 
 export type CompressionLevel = 'low' | 'mid' | 'high'
 
+export type DrawingTool = 'pen' | 'marker' | 'highlighter' | 'line' | 'arrow' | 'eraser'
+
+export type DrawingShape = 'freehand' | 'line' | 'arrow' | 'rectangle' | 'ellipse' | 'check'
+
 export interface WatermarkSettings {
   enabled: boolean
   text: string
@@ -65,6 +69,9 @@ export interface DrawingAnnotation extends BaseAnnotation {
   type: 'drawing'
   // Stroke points in local coords relative to the bbox (0,0 = top-left, Y down).
   points: Array<[number, number]>
+  // Older drawings omit this and are treated as freehand. Shape-assisted
+  // drawings use the same point storage but render with a cleaner path.
+  shape?: DrawingShape
   color: string       // hex
   opacity: number     // 0–1
   strokeWidth: number // PDF points

@@ -146,9 +146,18 @@ export function Toolbar(props: ToolbarProps) {
   const penColor = usePdfStore((s) => s.penColor)
   const penOpacity = usePdfStore((s) => s.penOpacity)
   const penWidth = usePdfStore((s) => s.penWidth)
+  const drawingTool = usePdfStore((s) => s.drawingTool)
   const setPenColor = usePdfStore((s) => s.setPenColor)
   const setPenOpacity = usePdfStore((s) => s.setPenOpacity)
   const setPenWidth = usePdfStore((s) => s.setPenWidth)
+  const setDrawingTool = usePdfStore((s) => s.setDrawingTool)
+  const removeAnnotation = usePdfStore((s) => s.removeAnnotation)
+  const lastDrawingId = usePdfStore((s) => {
+    for (let i = s.annotations.length - 1; i >= 0; i--) {
+      if (s.annotations[i].type === 'drawing') return s.annotations[i].id
+    }
+    return null
+  })
   const watermark = usePdfStore((s) => s.watermark)
   const setWatermark = usePdfStore((s) => s.setWatermark)
   const pageNumbers = usePdfStore((s) => s.pageNumbers)
@@ -813,17 +822,39 @@ export function Toolbar(props: ToolbarProps) {
             </TooltipTrigger>
             <TooltipContent side="bottom">{t('tb.pen_settings')}</TooltipContent>
           </Tooltip>
-          <PopoverContent className="w-56 space-y-3">
+          <PopoverContent className="w-72 space-y-3">
             <PenControls
-              value={{ color: penColor, opacity: penOpacity, width: penWidth }}
+              value={{ color: penColor, opacity: penOpacity, width: penWidth, tool: drawingTool }}
+              showTools
+              showPresets
               onChange={(p) => {
                 if (p.color !== undefined) setPenColor(p.color)
                 if (p.opacity !== undefined) setPenOpacity(p.opacity)
                 if (p.width !== undefined) setPenWidth(p.width)
+                if (p.tool !== undefined) setDrawingTool(p.tool)
               }}
             />
           </PopoverContent>
         </Popover>
+      )}
+      {mode === 'draw' && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!lastDrawingId}
+              onClick={() => {
+                if (lastDrawingId) removeAnnotation(lastDrawingId)
+              }}
+              aria-label={t('draw.undo_stroke')}
+              className="h-10 shrink-0 sm:h-8"
+            >
+              <Undo2 className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('draw.undo_stroke')}</TooltipContent>
+        </Tooltip>
       )}
       <ToolbarBtn
         icon={<MousePointer2 className={cn('size-4', mode === 'select' && 'size-5')} strokeWidth={mode === 'select' ? 2.5 : 2} />}

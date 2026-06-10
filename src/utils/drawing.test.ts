@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { pointsToSmoothPath, scaleDrawing, strokeToDrawingAnnotation } from './drawing'
+import {
+  drawingToSvgPath,
+  findTopmostDrawingAtPoint,
+  pointsToSmoothPath,
+  previewStrokePath,
+  scaleDrawing,
+  strokeToDrawingAnnotation,
+} from './drawing'
 import type { DrawingAnnotation } from '@/types'
 
 describe('pointsToSmoothPath', () => {
@@ -60,6 +67,69 @@ describe('strokeToDrawingAnnotation', () => {
     const maxY = Math.max(...a.points.map((p) => p[1]))
     expect(maxX).toBeLessThanOrEqual(a.w)
     expect(maxY).toBeLessThanOrEqual(a.h)
+  })
+
+  it('forces a clean line when the line tool is selected', () => {
+    const a = strokeToDrawingAnnotation([[10, 10], [20, 15], [80, 20]], 1, 0, '#000', 1, 2, 'line')!
+
+    expect(a.shape).toBe('line')
+    expect(a.points).toHaveLength(2)
+    expect(drawingToSvgPath(a)).toMatch(/^M .* L /)
+  })
+
+  it('forces a clean arrow when the arrow tool is selected', () => {
+    const a = strokeToDrawingAnnotation([[10, 10], [80, 10]], 1, 0, '#000', 1, 2, 'arrow')!
+
+    expect(a.shape).toBe('arrow')
+    expect(drawingToSvgPath(a)).toContain(' L ')
+    expect(drawingToSvgPath(a).match(/M/g)).toHaveLength(2)
+  })
+
+  it('cleans rough closed strokes into rectangles', () => {
+    const roughRect: Array<[number, number]> = [
+      [10, 10], [45, 9], [80, 12], [82, 38], [78, 70], [42, 72], [10, 68], [8, 40], [10, 10],
+    ]
+    const a = strokeToDrawingAnnotation(roughRect, 1, 0, '#000', 1, 2)!
+
+    expect(a.shape).toBe('rectangle')
+    expect(drawingToSvgPath(a)).toContain(' Z')
+  })
+
+  it('cleans checkmark-like strokes into a check shape', () => {
+    const check: Array<[number, number]> = [[10, 28], [25, 45], [58, 10]]
+    const a = strokeToDrawingAnnotation(check, 1, 0, '#000', 1, 2)!
+
+    expect(a.shape).toBe('check')
+    expect(a.points).toHaveLength(3)
+  })
+})
+
+describe('previewStrokePath', () => {
+  it('renders tool previews for line and arrow', () => {
+    expect(previewStrokePath([[0, 0], [20, 10]], 'line')).toBe('M 0.00 0.00 L 20.00 10.00')
+    expect(previewStrokePath([[0, 0], [20, 10]], 'arrow')).toContain('M')
+  })
+})
+
+describe('findTopmostDrawingAtPoint', () => {
+  it('returns the topmost drawing near a stroke', () => {
+    const bottom: DrawingAnnotation = {
+      id: 'bottom',
+      type: 'drawing',
+      pageIdx: 0,
+      x: 0,
+      y: 0,
+      w: 50,
+      h: 50,
+      points: [[0, 0], [50, 50]],
+      color: '#000',
+      opacity: 1,
+      strokeWidth: 2,
+    }
+    const top: DrawingAnnotation = { ...bottom, id: 'top', color: '#dc2626' }
+
+    expect(findTopmostDrawingAtPoint([bottom, top], { x: 24, y: 25 })?.id).toBe('top')
+    expect(findTopmostDrawingAtPoint([bottom, top], { x: 80, y: 80 })).toBeNull()
   })
 })
 

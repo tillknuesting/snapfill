@@ -35,6 +35,7 @@ beforeEach(() => {
     penColor: '#0a1f3d',
     penOpacity: 1,
     penWidth: 2,
+    drawingTool: 'pen',
     zoom: 1,
     formFieldEdits: new Map(),
     watermark: DEFAULT_WATERMARK,
@@ -191,6 +192,11 @@ describe('pen settings', () => {
   it('color updates verbatim', () => {
     usePdfStore.getState().setPenColor('#dc2626')
     expect(usePdfStore.getState().penColor).toBe('#dc2626')
+  })
+
+  it('stores the active drawing tool', () => {
+    usePdfStore.getState().setDrawingTool('highlighter')
+    expect(usePdfStore.getState().drawingTool).toBe('highlighter')
   })
 })
 

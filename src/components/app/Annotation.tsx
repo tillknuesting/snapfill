@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { usePdfStore } from '@/store/usePdfStore'
 import { FONT_FAMILIES, normalizeFamily } from '@/utils/fonts'
 import { formatDate } from '@/utils/dateFormats'
-import { pointsToSmoothPath } from '@/utils/drawing'
+import { drawingToSvgPath } from '@/utils/drawing'
 import { assertNever } from '@/utils/assertNever'
 import { useT } from '@/utils/useT'
 import type {
@@ -86,7 +86,7 @@ function AnnotationImpl({ annotation, page, scale }: AnnotationProps) {
 
   // Memoised SVG path for drawing annotations (cheap pass-through for others).
   const pathD = useMemo(
-    () => (annotation.type === 'drawing' ? pointsToSmoothPath(annotation.points) : ''),
+    () => (annotation.type === 'drawing' ? drawingToSvgPath(annotation) : ''),
     [annotation],
   )
 

@@ -10,7 +10,7 @@ beforeEach(() => {
     fileName: '', annotations: [], pages: [], mode: 'idle',
     selectedId: null, pendingSignature: null, pendingTextValue: null,
     pendingDateMs: null, sigColor: '#0a1f3d', penColor: '#0a1f3d',
-    penOpacity: 1, penWidth: 2, zoom: 1, formFieldEdits: new Map(),
+    penOpacity: 1, penWidth: 2, drawingTool: 'pen', zoom: 1, formFieldEdits: new Map(),
   })
   // Seed profile with two known fields
   localStorage.setItem('pdfhelper.profile', JSON.stringify([

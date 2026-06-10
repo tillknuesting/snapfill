@@ -4,12 +4,12 @@ import { useShallow } from 'zustand/react/shallow'
 import { Loader2 } from 'lucide-react'
 import { usePdfStore } from '@/store/usePdfStore'
 import type {
-  Annotation as AnnotType, FontFamily, PageInfo, PageNumberSettings, RedactionAnnotation, TextAnnotation, TextEditAnnotation,
+  Annotation as AnnotType, DrawingAnnotation, FontFamily, PageInfo, PageNumberSettings, RedactionAnnotation, TextAnnotation, TextEditAnnotation,
 } from '@/types'
 import { Annotation } from './Annotation'
 import { FONT_FAMILIES } from '@/utils/fonts'
 import { detectFormRows, findRowAt, refineRowsWithText, type FormRow } from '@/utils/detectFormRows'
-import { pointsToSmoothPath, strokeToDrawingAnnotation } from '@/utils/drawing'
+import { findTopmostDrawingAtPoint, previewStrokePath, strokeToDrawingAnnotation } from '@/utils/drawing'
 import { cn } from '@/lib/utils'
 import { watermarkIsVisible } from '@/utils/watermark'
 import { formatPageNumber, pageNumbersAreVisible } from '@/utils/pageNumbers'
@@ -273,7 +273,9 @@ export function PdfPage({
   const penColor = usePdfStore((s) => s.penColor)
   const penOpacity = usePdfStore((s) => s.penOpacity)
   const penWidth = usePdfStore((s) => s.penWidth)
+  const drawingTool = usePdfStore((s) => s.drawingTool)
   const addAnnotation = usePdfStore((s) => s.addAnnotation)
+  const removeAnnotation = usePdfStore((s) => s.removeAnnotation)
   const setMode = usePdfStore((s) => s.setMode)
   const setSelectedId = usePdfStore((s) => s.setSelectedId)
   const setPendingTextValue = usePdfStore((s) => s.setPendingTextValue)
@@ -284,11 +286,23 @@ export function PdfPage({
   // Two-tier storage: a ref accumulates raw points at full pointer rate; we
   // commit to React state once per animation frame to keep renders cheap.
   const strokeRef = useRef<Array<[number, number]> | null>(null)
+  const erasedStrokeIdsRef = useRef<Set<string>>(new Set())
   const rafRef = useRef<number | null>(null)
   const [currentStroke, setCurrentStroke] = useState<Array<[number, number]> | null>(null)
   const redactionStartRef = useRef<{ x: number; y: number } | null>(null)
   const suppressNextOverlayClickRef = useRef(false)
   const [currentRedaction, setCurrentRedaction] = useState<Pick<RedactionAnnotation, 'x' | 'y' | 'w' | 'h'> | null>(null)
+
+  function eraseDrawingAtPointer(e: React.PointerEvent<HTMLDivElement>) {
+    const p = pointerToPdfPoint(e)
+    const drawings = pageAnnots.filter((a): a is DrawingAnnotation =>
+      a.type === 'drawing' && !erasedStrokeIdsRef.current.has(a.id),
+    )
+    const hit = findTopmostDrawingAtPoint(drawings, p)
+    if (!hit) return
+    erasedStrokeIdsRef.current.add(hit.id)
+    removeAnnotation(hit.id)
+  }
 
   // Lazy rendering: only paint the canvas when the wrapper enters the
   // viewport (or its rootMargin halo). Big PDFs no longer pay 100×
@@ -724,6 +738,11 @@ export function PdfPage({
           if (mode === 'draw') {
             e.preventDefault();
             (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
+            if (drawingTool === 'eraser') {
+              erasedStrokeIdsRef.current = new Set()
+              eraseDrawingAtPointer(e)
+              return
+            }
             const rect = e.currentTarget.getBoundingClientRect()
             strokeRef.current = [[e.clientX - rect.left, e.clientY - rect.top]]
             setCurrentStroke(strokeRef.current)
@@ -754,6 +773,10 @@ export function PdfPage({
             }
             return
           }
+          if (mode === 'draw' && drawingTool === 'eraser' && (e.buttons & 1) === 1) {
+            eraseDrawingAtPointer(e)
+            return
+          }
           if (mode !== 'text' || !snapEnabled || snapRows.length === 0) {
             if (hoverRow) setHoverRow(null)
             return
@@ -771,11 +794,15 @@ export function PdfPage({
               rafRef.current = null
             }
             const a = strokeToDrawingAnnotation(
-              strokeRef.current, scale, pageIdx, penColor, penOpacity, penWidth,
+              strokeRef.current, scale, pageIdx, penColor, penOpacity, penWidth, drawingTool,
             )
             if (a) addAnnotation(a)
             strokeRef.current = null
             setCurrentStroke(null)
+            return
+          }
+          if (mode === 'draw' && drawingTool === 'eraser') {
+            erasedStrokeIdsRef.current.clear()
             return
           }
           if (mode === 'redact' && redactionStartRef.current) {
@@ -804,6 +831,7 @@ export function PdfPage({
             rafRef.current = null
           }
           strokeRef.current = null
+          erasedStrokeIdsRef.current.clear()
           redactionStartRef.current = null
           if (currentStroke) setCurrentStroke(null)
           if (currentRedaction) setCurrentRedaction(null)
@@ -811,7 +839,8 @@ export function PdfPage({
         onMouseLeave={() => setHoverRow(null)}
         className={cn(
           'absolute inset-0',
-          (mode === 'text' || mode === 'signature' || mode === 'draw' || mode === 'redact') ? 'cursor-crosshair' : 'cursor-default',
+          (mode === 'text' || mode === 'signature' || mode === 'redact') ? 'cursor-crosshair' : 'cursor-default',
+          mode === 'draw' && (drawingTool === 'eraser' ? 'cursor-pointer' : 'cursor-crosshair'),
         )}
         style={{ lineHeight: 'normal' }}
       >
@@ -891,7 +920,7 @@ export function PdfPage({
             height={viewport.height}
           >
             <path
-              d={pointsToSmoothPath(currentStroke)}
+              d={previewStrokePath(currentStroke, drawingTool)}
               stroke={penColor}
               strokeWidth={penWidth * scale}
               strokeOpacity={penOpacity}

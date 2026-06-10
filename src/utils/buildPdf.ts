@@ -1,7 +1,7 @@
 import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import type { Annotation, PageInfo, PageNumberSettings, WatermarkSettings } from '@/types'
 import { FONT_FAMILIES, normalizeFamily, pdfFontIdFor } from './fonts'
-import { pointsToSmoothPath } from './drawing'
+import { drawingToSvgPath } from './drawing'
 import { assertNever } from './assertNever'
 import { normalizeWatermark, watermarkIsVisible } from './watermark'
 import { formatPageNumber, normalizePageNumbers, pageNumbersAreVisible } from './pageNumbers'
@@ -252,7 +252,7 @@ export async function buildPdf(opts: BuildPdfOptions): Promise<Uint8Array> {
       } else if (a.type === 'drawing') {
         // Flip Y to match PDF (origin bottom-left), keep points in local coords.
         const flipped: Array<[number, number]> = a.points.map(([px, py]) => [px, a.h - py])
-        const d = pointsToSmoothPath(flipped)
+        const d = drawingToSvgPath({ ...a, points: flipped })
         pdfPage.drawSvgPath(d, {
           x: a.x,
           y: info.pdfHeight - (a.y + a.h),
