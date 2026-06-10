@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2, LockKeyhole } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { usePdfStore } from '@/store/usePdfStore'
 import { useT } from '@/utils/useT'
 import { PdfPage } from './PdfPage'
@@ -21,6 +26,11 @@ interface PdfViewerProps {
   onPagesLoaded?: (pages: PDFPageProxy[]) => void
 }
 
+interface PasswordRequest {
+  reason: number
+  submit: (password: string) => void
+}
+
 export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPagesLoaded }: PdfViewerProps) {
   const t = useT()
   const pdfBytes = usePdfStore((s) => s.pdfBytes)
@@ -36,6 +46,8 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
   // PDF we can't decrypt, non-PDF dropped through). Without this the user
   // would stare at the loading spinner forever.
   const [loadError, setLoadError] = useState<{ key?: string; message?: string } | null>(null)
+  const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null)
+  const [passwordValue, setPasswordValue] = useState('')
   const closePdf = usePdfStore((s) => s.closePdf)
   const containerWidth = baseWidth * zoom
 
@@ -50,13 +62,22 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
       setPageCount(0)
       setPageInfos([])
       setLoadError(null)
+      setPasswordRequest(null)
+      setPasswordValue('')
       onPagesLoaded?.([])
     })
     if (!pdfBytes) return () => { cancelled = true }
     const data = pdfBytes.slice()
     const task = pdfjsLib.getDocument({ data })
+    task.onPassword = (submit: (password: string) => void, reason: number) => {
+      if (cancelled) return
+      setPasswordValue('')
+      setPasswordRequest({ reason, submit })
+    }
     task.promise.then(async (d) => {
       if (cancelled) return
+      setPasswordRequest(null)
+      setPasswordValue('')
       setDoc(d)
       setPageCount(d.numPages)
       const loaded: PDFPageProxy[] = []
@@ -94,6 +115,15 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
     }
   }, [pdfBytes, onPagesLoaded])
 
+  const submitPassword = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!passwordRequest || !passwordValue) return
+    const submit = passwordRequest.submit
+    setPasswordRequest(null)
+    submit(passwordValue)
+    setPasswordValue('')
+  }, [passwordRequest, passwordValue])
+
   useEffect(() => {
     function update() {
       const main = document.getElementById('pdf-main')
@@ -123,6 +153,54 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
     }
   }, [pageInfos, pageCount, setPages])
 
+  const passwordDialog = (
+    <Dialog open={!!passwordRequest} onOpenChange={(open) => {
+      if (!open && passwordRequest) closePdf()
+    }}>
+      <DialogContent showCloseButton={false} className="max-w-sm">
+        <form onSubmit={submitPassword} className="space-y-4">
+          <DialogHeader>
+            <div className="mb-1 flex justify-center sm:justify-start">
+              <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+                <LockKeyhole className="size-5 text-muted-foreground" aria-hidden="true" />
+              </div>
+            </div>
+            <DialogTitle>{t('pdf.password.title')}</DialogTitle>
+            <DialogDescription>
+              {passwordRequest?.reason === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD
+                ? t('pdf.password.incorrect')
+                : t('pdf.password.description')}
+            </DialogDescription>
+          </DialogHeader>
+          {fileName && (
+            <div className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              {fileName}
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="pdf-password">{t('pdf.password.label')}</Label>
+            <Input
+              id="pdf-password"
+              type="password"
+              value={passwordValue}
+              onChange={(event) => setPasswordValue(event.target.value)}
+              autoFocus
+              autoComplete="current-password"
+            />
+          </div>
+          <DialogFooter className="sm:justify-between">
+            <Button type="button" variant="outline" onClick={closePdf}>
+              {t('pdf.password.cancel')}
+            </Button>
+            <Button type="submit" disabled={!passwordValue}>
+              {t('pdf.password.unlock')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+
   if (loadError) {
     // Render a recoverable error state instead of leaving the loading
     // spinner up forever. The "Close this PDF" button clears pdfBytes so
@@ -150,6 +228,7 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
             {t('pdf.close')}
           </Button>
         </div>
+        {passwordDialog}
       </div>
     )
   }
@@ -173,6 +252,7 @@ export function PdfViewer({ textFamily, textSize, textColor, snapEnabled, onPage
             )}
           </div>
         </div>
+        {passwordDialog}
       </div>
     )
   }
