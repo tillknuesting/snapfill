@@ -43,7 +43,7 @@ export function SignatureModal({ open, onOpenChange }: Props) {
   const [tab, setTab] = useState<'draw' | 'type' | 'generate'>('draw')
   const [typedText, setTypedText] = useState('')
   const [typedFont, setTypedFont] = useState<HandwritingFont>('Caveat')
-  const [generatedStyle, setGeneratedStyle] = useState<GeneratedSignatureStyle>('flowing')
+  const [generatedStyle, setGeneratedStyle] = useState<GeneratedSignatureStyle>('readable')
   const [generatedSeed, setGeneratedSeed] = useState(1)
   const [generatedLegibility, setGeneratedLegibility] = useState(0.84)
   const [generatedFlourish, setGeneratedFlourish] = useState(0.38)
@@ -57,7 +57,7 @@ export function SignatureModal({ open, onOpenChange }: Props) {
       if (cancelled) return
       setTab('draw')
       setTypedText('')
-      setGeneratedStyle('flowing')
+      setGeneratedStyle('readable')
       setGeneratedSeed((s) => s + 1)
       setGeneratedLegibility(0.84)
       setGeneratedFlourish(0.38)
@@ -425,8 +425,7 @@ function GeneratedPad({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="flowing">{tGenerate('sm.generate.style.flowing')}</SelectItem>
-              <SelectItem value="quick">{tGenerate('sm.generate.style.quick')}</SelectItem>
+              <SelectItem value="readable">{tGenerate('sm.generate.style.readable')}</SelectItem>
               <SelectItem value="formal">{tGenerate('sm.generate.style.formal')}</SelectItem>
             </SelectContent>
           </Select>

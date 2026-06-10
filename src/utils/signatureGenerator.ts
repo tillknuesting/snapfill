@@ -1,4 +1,4 @@
-export type GeneratedSignatureStyle = 'flowing' | 'quick' | 'formal'
+export type GeneratedSignatureStyle = 'readable' | 'formal'
 
 export interface GeneratedSignatureSettings {
   seed: number
@@ -57,11 +57,6 @@ const NARROW = new Set('fijlt')
 const TALL = new Set('bdfhklt')
 const DESC = new Set('gjpqy')
 const ROUND = new Set('abcdegoq')
-const TEXT_GUIDED_FONTS: Record<GeneratedSignatureStyle, string[]> = {
-  flowing: ['Caveat', 'Kalam', 'Patrick Hand'],
-  quick: ['Reenie Beanie', 'Just Another Hand', 'Shadows Into Light'],
-  formal: ['Kalam', 'Patrick Hand', 'Architects Daughter'],
-}
 
 export function generateSignaturePlan(name: string, settings: GeneratedSignatureSettings): SignaturePlan {
   const width = settings.width ?? 500
@@ -160,90 +155,26 @@ export async function renderTextGuidedSignature(
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   if (!cleaned) return
 
-  const rng = mulberry32(hashSeed(cleaned, settings.seed))
-  const style = styleProfile(settings.style)
-  const legibility = clamp(0, 1, settings.legibility)
-  const flourish = clamp(0, 1, settings.flourish)
-  const fonts = TEXT_GUIDED_FONTS[settings.style]
-  const font = fonts[Math.floor(rng() * fonts.length) % fonts.length]
-  let size = Math.min(82, canvas.height * 0.5)
-
-  await loadCanvasFont(font, size)
+  const writerSeed = hashSeed(`${cleaned}:${settings.style}:writer`, 31) % 9999 + 1
+  const plan = generateSignaturePlan(cleaned, {
+    ...settings,
+    seed: writerSeed,
+    width: canvas.width,
+    height: canvas.height,
+  })
   if (!isCurrent()) return
 
+  const sampleRng = mulberry32(hashSeed(`${cleaned}:${settings.style}:sample`, settings.seed))
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.save()
-  ctx.textBaseline = 'alphabetic'
-  ctx.textAlign = 'left'
-  ctx.font = `${size}px "${font}", cursive`
-  while (ctx.measureText(cleaned).width > canvas.width - 44 && size > 22) {
-    size -= 2
-    ctx.font = `${size}px "${font}", cursive`
-  }
-
-  const measured = ctx.measureText(cleaned)
-  const textWidth = measured.width
-  const x = (canvas.width - textWidth) / 2
-  const baseline = canvas.height * (0.58 + (rng() - 0.5) * 0.025)
-  const looseness = 1 - legibility
-  const shear = style.slant * 0.16 + looseness * 0.08 + (rng() - 0.5) * 0.025
-  const jitterScale = 0.7 + looseness * 2.3
-
-  ctx.translate(0, baseline)
-  ctx.transform(1, 0, -shear, 1, 0, 0)
-  ctx.fillStyle = color
   ctx.strokeStyle = color
-  ctx.lineJoin = 'round'
-  ctx.lineCap = 'round'
-
-  const passes = settings.style === 'quick' ? 2 : 3
-  for (let i = 0; i < passes; i++) {
-    ctx.globalAlpha = i === 0 ? 0.92 : 0.28
-    ctx.fillText(cleaned, x + (rng() - 0.5) * 1.4 * jitterScale, (rng() - 0.5) * 1.2 * jitterScale)
-  }
-
-  ctx.globalAlpha = 0.2 + looseness * 0.18
-  ctx.lineWidth = Math.max(0.45, style.weight * 0.28)
-  ctx.strokeText(cleaned, x + (rng() - 0.5) * 0.9 * jitterScale, (rng() - 0.5) * 0.8 * jitterScale)
-  ctx.restore()
-
-  if (looseness > 0.04) {
-    ctx.save()
-    ctx.globalAlpha = Math.min(0.26, looseness * 0.36)
-    ctx.strokeStyle = color
-    drawSignaturePlan(ctx, generateSignaturePlan(cleaned, {
-      ...settings,
-      seed: settings.seed + 97,
-      legibility: Math.max(0.45, legibility),
-      width: canvas.width,
-      height: canvas.height,
-    }))
-    ctx.restore()
-  }
-
-  addInkTexture(ctx, canvas, rng, 0.035 + looseness * 0.08)
-
-  if (flourish > 0.08) {
-    ctx.save()
-    ctx.strokeStyle = color
-    ctx.globalAlpha = 0.82
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.lineWidth = Math.max(0.55, style.weight * 0.42)
-    const y = baseline + size * (0.08 + flourish * 0.04)
-    ctx.beginPath()
-    ctx.moveTo(x + textWidth * 0.72, y)
-    ctx.bezierCurveTo(
-      x + textWidth * (0.84 + flourish * 0.05),
-      y + size * 0.12,
-      x + textWidth + size * flourish * 0.55,
-      y + size * 0.06,
-      x + textWidth + size * (0.28 + flourish * 0.44),
-      y - size * 0.02,
-    )
-    ctx.stroke()
-    ctx.restore()
-  }
+  ctx.fillStyle = color
+  drawMotorSignaturePlan(ctx, plan, sampleRng, {
+    style: settings.style,
+    speed: settings.style === 'formal' ? 0.28 : 0.52,
+    roughness: settings.style === 'formal' ? 0.08 : 0.16,
+    scale: Math.max(canvas.width / 500, canvas.height / 200),
+  })
+  addInkTexture(ctx, canvas, sampleRng, settings.style === 'formal' ? 0.018 : 0.038)
 }
 
 function drawSignaturePlan(ctx: CanvasRenderingContext2D, plan: SignaturePlan) {
@@ -254,13 +185,176 @@ function drawSignaturePlan(ctx: CanvasRenderingContext2D, plan: SignaturePlan) {
   }
 }
 
-async function loadCanvasFont(font: string, size: number): Promise<void> {
-  if (typeof document === 'undefined' || !document.fonts) return
-  try {
-    await document.fonts.load(`${size}px "${font}"`)
-  } catch {
-    // Browser fallback cursive is still usable if a web font fails to load.
+interface MotorRenderOptions {
+  style: GeneratedSignatureStyle
+  speed: number
+  roughness: number
+  scale: number
+}
+
+interface MotionPoint extends SignaturePoint {
+  alpha: number
+  angle: number
+  deposit: number
+  skip: boolean
+  width: number
+}
+
+function drawMotorSignaturePlan(ctx: CanvasRenderingContext2D, plan: SignaturePlan, rng: Rng, opts: MotorRenderOptions) {
+  ctx.save()
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  for (const stroke of plan.strokes) {
+    drawMotorStroke(ctx, stroke, rng, opts)
   }
+  ctx.restore()
+}
+
+function drawMotorStroke(ctx: CanvasRenderingContext2D, stroke: SignatureStroke, rng: Rng, opts: MotorRenderOptions) {
+  if (stroke.points.length < 2) return
+  const length = pathLength(stroke.points)
+  if (length < 0.5) return
+
+  const samples = resampleStroke(stroke.points, Math.max(1.05, Math.min(3, stroke.width * 0.9 + 0.7)))
+  if (samples.length < 2) return
+
+  const motion = motorSamples(samples, stroke.width, length, rng, opts)
+  for (let i = 1; i < motion.length; i++) {
+    const a = motion[i - 1]
+    const b = motion[i]
+    if (b.skip) continue
+
+    ctx.globalAlpha = b.alpha
+    ctx.lineWidth = Math.max(0.28, b.width)
+    ctx.beginPath()
+    ctx.moveTo(a.x, a.y)
+    ctx.lineTo(b.x, b.y)
+    ctx.stroke()
+
+    if (b.deposit > 0.02) {
+      ctx.globalAlpha = Math.min(0.18, b.deposit)
+      ctx.beginPath()
+      ctx.ellipse(b.x, b.y, b.width * 0.38, b.width * 0.26, b.angle, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+}
+
+function motorSamples(points: SignaturePoint[], baseWidth: number, length: number, rng: Rng, opts: MotorRenderOptions): MotionPoint[] {
+  const raw: Array<SignaturePoint & {
+    curvature: number
+    downstroke: number
+    edge: number
+    speed: number
+    t: number
+  }> = []
+  const pulseCount = Math.max(2, Math.min(7, Math.round(length / Math.max(28, 46 * opts.scale))))
+  const pulses = Array.from({ length: pulseCount }, (_, index) => {
+    const center = (index + 0.68 + rng() * 0.58) / (pulseCount + 0.36)
+    return {
+      center: clamp(0.04, 0.96, center),
+      spread: 0.18 + rng() * 0.16 + opts.speed * 0.08,
+      weight: 0.72 + rng() * 0.56,
+    }
+  })
+
+  let minSpeed = Infinity
+  let maxSpeed = -Infinity
+
+  for (let i = 0; i < points.length; i++) {
+    const t = i / Math.max(1, points.length - 1)
+    const prev = points[Math.max(0, i - 1)]
+    const point = points[i]
+    const next = points[Math.min(points.length - 1, i + 1)]
+    const curvature = localCurvature(prev, point, next)
+    const downstroke = next.y > prev.y ? 1 : 0
+    const edge = Math.min(1, t * 9, (1 - t) * 9)
+    let speed = 0.06 + opts.speed * 0.12
+    for (const pulse of pulses) speed += pulse.weight * lognormalPulse(t, pulse.center, pulse.spread)
+    speed *= 1 + (rng() - 0.5) * (0.08 + opts.roughness * 0.16)
+    speed += curvature * 0.12
+    minSpeed = Math.min(minSpeed, speed)
+    maxSpeed = Math.max(maxSpeed, speed)
+    raw.push({ ...point, curvature, downstroke, edge, speed, t })
+  }
+
+  const range = Math.max(0.001, maxSpeed - minSpeed)
+  return raw.map((point, index) => {
+    const speedNorm = clamp(0, 1, (point.speed - minSpeed) / range)
+    const prev = raw[Math.max(0, index - 1)]
+    const angle = Math.atan2(point.y - prev.y, point.x - prev.x)
+    const taper = points.length <= 3 ? 1 : clamp(0.08, 1, point.edge)
+    const pressure = clamp(
+      0.18,
+      1.34,
+      0.28
+        + (1 - speedNorm) * 0.72
+        + point.downstroke * 0.12
+        + point.curvature * 0.22
+        + (rng() - 0.5) * (0.08 + opts.roughness * 0.18),
+    )
+    const width = baseWidth * taper * pressure * (0.9 + opts.speed * 0.14)
+    const dryChance = Math.max(0, opts.roughness * 0.035 + speedNorm * opts.roughness * 0.05 - point.curvature * 0.035)
+    return {
+      ...point,
+      alpha: clamp(0.32, 0.98, 0.5 + pressure * 0.4 - speedNorm * 0.1),
+      angle,
+      deposit: point.curvature * 0.1 + (1 - speedNorm) * 0.04 + point.downstroke * 0.016,
+      skip: index > 2 && index < raw.length - 3 && rng() < dryChance,
+      width,
+    }
+  })
+}
+
+function resampleStroke(points: SignaturePoint[], step: number): SignaturePoint[] {
+  const result: SignaturePoint[] = [points[0]]
+  let carry = 0
+  let cursor = points[0]
+
+  for (let i = 1; i < points.length; i++) {
+    const target = points[i]
+    let dx = target.x - cursor.x
+    let dy = target.y - cursor.y
+    let distance = Math.hypot(dx, dy)
+
+    while (carry + distance >= step && distance > 0.001) {
+      const ratio = (step - carry) / distance
+      cursor = { x: cursor.x + dx * ratio, y: cursor.y + dy * ratio }
+      result.push(cursor)
+      dx = target.x - cursor.x
+      dy = target.y - cursor.y
+      distance = Math.hypot(dx, dy)
+      carry = 0
+    }
+
+    carry += distance
+    cursor = target
+  }
+
+  if (result[result.length - 1] !== points[points.length - 1]) result.push(points[points.length - 1])
+  return result
+}
+
+function pathLength(points: SignaturePoint[]): number {
+  let total = 0
+  for (let i = 1; i < points.length; i++) total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y)
+  return total
+}
+
+function localCurvature(a: SignaturePoint, b: SignaturePoint, c: SignaturePoint): number {
+  const angleA = Math.atan2(b.y - a.y, b.x - a.x)
+  const angleB = Math.atan2(c.y - b.y, c.x - b.x)
+  let diff = Math.abs(angleB - angleA)
+  if (diff > Math.PI) diff = Math.PI * 2 - diff
+  return clamp(0, 1, diff / Math.PI)
+}
+
+function lognormalPulse(t: number, center: number, spread: number): number {
+  const x = clamp(0.004, 0.996, t)
+  const mu = Math.log(clamp(0.02, 0.98, center))
+  const sigma = spread
+  const z = (Math.log(x) - mu) / sigma
+  return Math.exp(-0.5 * z * z) / (x * sigma * Math.sqrt(Math.PI * 2))
 }
 
 function addInkTexture(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, rng: Rng, alpha: number) {
@@ -922,9 +1016,8 @@ function isUppercaseLetter(char: string): boolean {
 
 function styleProfile(style: GeneratedSignatureStyle): StyleProfile {
   switch (style) {
-    case 'quick': return { slant: 0.1, weight: 2.35, tightness: 0.82, wobble: 2.3, simplification: 0.72, baselineJitter: 8 }
-    case 'formal': return { slant: 0.16, weight: 1.9, tightness: 1, wobble: 1.1, simplification: 0.18, baselineJitter: 3 }
-    case 'flowing': return { slant: 0.22, weight: 2.08, tightness: 0.92, wobble: 1.55, simplification: 0.38, baselineJitter: 5 }
+    case 'formal': return { slant: 0.06, weight: 1.62, tightness: 1.04, wobble: 0.72, simplification: 0.06, baselineJitter: 2.2 }
+    case 'readable': return { slant: 0.2, weight: 1.88, tightness: 0.94, wobble: 1.18, simplification: 0.16, baselineJitter: 3.8 }
   }
 }
 

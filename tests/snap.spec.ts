@@ -996,6 +996,12 @@ test.describe('signature flow', () => {
     await page.getByRole('tab', { name: /^Generate$/ }).click()
     const activePanel = page.locator('[role="tabpanel"][data-state="active"]')
     await activePanel.locator('input').first().fill('Tilo Knopfler')
+    await activePanel.getByRole('combobox').click()
+    await expect(page.getByRole('option', { name: /^Readable$/ })).toBeVisible()
+    await expect(page.getByRole('option', { name: /^Formal$/ })).toBeVisible()
+    await expect(page.getByRole('option', { name: /^Flowing$/ })).toHaveCount(0)
+    await expect(page.getByRole('option', { name: /^Quick$/ })).toHaveCount(0)
+    await page.getByRole('option', { name: /^Formal$/ }).click()
     await activePanel.getByRole('button', { name: /^Shuffle$/ }).click()
     await activePanel.getByRole('button', { name: /^Use signature$/ }).click()
 

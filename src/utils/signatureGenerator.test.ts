@@ -8,7 +8,7 @@ import {
 
 const baseSettings: GeneratedSignatureSettings = {
   seed: 17,
-  style: 'flowing',
+  style: 'readable',
   legibility: 0.6,
   flourish: 0.72,
   width: 500,
@@ -38,6 +38,13 @@ describe('generateSignaturePlan', () => {
     const second = generateSignaturePlan('Tilo Knopfler', { ...baseSettings, seed: 18 })
 
     expect(second).not.toEqual(first)
+  })
+
+  it('changes the result between readable and formal styles', () => {
+    const readable = generateSignaturePlan('Tilo Knopfler', { ...baseSettings, style: 'readable' })
+    const formal = generateSignaturePlan('Tilo Knopfler', { ...baseSettings, style: 'formal' })
+
+    expect(formal).not.toEqual(readable)
   })
 
   it('fits generated strokes inside the requested canvas', () => {
