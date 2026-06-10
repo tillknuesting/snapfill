@@ -751,7 +751,7 @@ export default function App() {
             <ModeBanner />
           </div>
           <div className="flex min-h-0 flex-1">
-            <main id="pdf-main" className="flex-1 overflow-auto bg-muted/30 pb-32 sm:pb-0">
+            <main id="pdf-main" className="flex-1 overflow-auto bg-muted/30">
               {pdfBytes ? (
                 <PdfViewer
                   textFamily={textFamily}

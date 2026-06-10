@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   AlignLeft, ArrowDownToLine, ArrowUpToLine, Calendar, ChevronDown, Download, Eraser, FileUp, Files,
-  Hash, HelpCircle, Image as ImageIcon, ListOrdered, Loader2, MoreHorizontal, MousePointer2, Pencil, PenLine,
+  Hash, HelpCircle, Image as ImageIcon, ListOrdered, Loader2, MousePointer2, Pencil, PenLine,
   RectangleHorizontal, Stamp, TextCursorInput, Type, Undo2, User, ZoomIn, ZoomOut,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -105,75 +105,8 @@ interface ToolbarProps {
   profileDialogOpen: boolean
 }
 
-function useIsMobileToolbar() {
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return false
-    return window.matchMedia('(max-width: 639px)').matches
-  })
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return
-    const mql = window.matchMedia('(max-width: 639px)')
-    const update = () => setIsMobile(mql.matches)
-    update()
-    mql.addEventListener?.('change', update)
-    return () => mql.removeEventListener?.('change', update)
-  }, [])
-  return isMobile
-}
-
-function MobileActionButton({
-  icon, label, active, disabled, primary, onClick,
-}: {
-  icon: ReactNode
-  label: string
-  active?: boolean
-  disabled?: boolean
-  primary?: boolean
-  onClick?: () => void
-}) {
-  return (
-    <Button
-      type="button"
-      variant={active || primary ? 'default' : 'ghost'}
-      disabled={disabled}
-      aria-label={label}
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        'h-14 min-w-0 flex-1 flex-col gap-0.5 rounded-md px-1 text-[10px] leading-none',
-        active && 'shadow-md ring-2 ring-primary/30',
-      )}
-    >
-      {icon}
-      <span className="max-w-full truncate">{label}</span>
-    </Button>
-  )
-}
-
-function MobileMenuButton({
-  icon, label, disabled, onClick,
-}: {
-  icon: ReactNode
-  label: string
-  disabled?: boolean
-  onClick?: () => void
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="flex min-h-10 w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-    >
-      {icon}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-    </button>
-  )
-}
-
 export function Toolbar(props: ToolbarProps) {
   const t = useT()
-  const isMobile = useIsMobileToolbar()
   const fileRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const mergeInputRef = useRef<HTMLInputElement>(null)
@@ -186,7 +119,6 @@ export function Toolbar(props: ToolbarProps) {
   // Download split-button state. compressOnDownload persists for the
   // session — the user picks once and subsequent downloads honour it.
   const [downloadOptsOpen, setDownloadOptsOpen] = useState(false)
-  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const [compressOnDownload, setCompressOnDownload] = useState(false)
   const [compressLevel, setCompressLevel] = useState<CompressionLevel>('mid')
   const pdfBytes = usePdfStore((s) => s.pdfBytes)
@@ -511,26 +443,6 @@ export function Toolbar(props: ToolbarProps) {
     )
   }
 
-  function beginMerge(where: 'start' | 'end') {
-    setMobileMoreOpen(false)
-    setMergePopoverOpen(false)
-    setMergeWhere(where)
-    mergeInputRef.current?.click()
-  }
-
-  function chooseImage() {
-    setMobileMoreOpen(false)
-    if (mode === 'image') { setMode('idle'); return }
-    imageInputRef.current?.click()
-  }
-
-  function insertDate() {
-    const now = Date.now()
-    setPendingTextValue(formatDate(now, undefined))
-    setPendingDateMs(now)
-    setMode('text')
-  }
-
   function renderTextControls(mobile: boolean) {
     if (!showTextControls) return null
     return (
@@ -665,283 +577,12 @@ export function Toolbar(props: ToolbarProps) {
     )
   }
 
-  function renderMobileToolbar() {
-    return (
-      <>
-        {renderTextControls(true)}
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 shadow-lg backdrop-blur sm:hidden">
-          <div className="grid grid-cols-6 gap-1">
-            <Popover open={mobileMoreOpen} onOpenChange={setMobileMoreOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  aria-label={t('tb.more')}
-                  className="h-14 min-w-0 flex-col gap-0.5 rounded-md px-1 text-[10px] leading-none"
-                >
-                  <MoreHorizontal className="size-5" />
-                  <span className="max-w-full truncate">{t('tb.more')}</span>
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="mb-2 max-h-[70vh] w-[min(22rem,calc(100vw-1rem))] overflow-y-auto p-2" align="start" side="top">
-                <div className="grid gap-1">
-                  <MobileMenuButton
-                    icon={<ListOrdered className="size-4 shrink-0" />}
-                    label={t('tb.pages')}
-                    disabled={!hasPdf || !props.hasMultiplePages}
-                    onClick={() => { setMobileMoreOpen(false); props.onOpenPages() }}
-                  />
-                  <Separator className="my-1" />
-                  <MobileMenuButton
-                    icon={<TextCursorInput className="size-4 shrink-0" />}
-                    label={t('tb.edit_text')}
-                    disabled={!hasPdf}
-                    onClick={() => { setMobileMoreOpen(false); setMode(mode === 'edit' ? 'idle' : 'edit') }}
-                  />
-                  <MobileMenuButton
-                    icon={<RectangleHorizontal className="size-4 shrink-0" />}
-                    label={t('tb.redact')}
-                    disabled={!hasPdf}
-                    onClick={() => { setMobileMoreOpen(false); setMode(mode === 'redact' ? 'idle' : 'redact') }}
-                  />
-                  <MobileMenuButton
-                    icon={<Calendar className="size-4 shrink-0" />}
-                    label={t('tb.insert_date')}
-                    disabled={!hasPdf}
-                    onClick={() => { setMobileMoreOpen(false); insertDate() }}
-                  />
-                  <MobileMenuButton
-                    icon={<ImageIcon className="size-4 shrink-0" />}
-                    label={t('tb.add_image')}
-                    disabled={!hasPdf}
-                    onClick={chooseImage}
-                  />
-                  <div className="rounded px-2 py-2">
-                    <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                      <Stamp className="size-4 shrink-0" />
-                      <span>{t('tb.watermark')}</span>
-                    </div>
-                    {renderWatermarkControls()}
-                  </div>
-                  <div className="rounded px-2 py-2">
-                    <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                      <Hash className="size-4 shrink-0" />
-                      <span>{t('pn.label')}</span>
-                    </div>
-                    {renderPageNumberControls()}
-                  </div>
-                  <MobileMenuButton
-                    icon={<Pencil className="size-4 shrink-0" />}
-                    label={t('tb.draw')}
-                    disabled={!hasPdf}
-                    onClick={() => { setMobileMoreOpen(false); setMode(mode === 'draw' ? 'idle' : 'draw') }}
-                  />
-                  <MobileMenuButton
-                    icon={<User className="size-4 shrink-0" />}
-                    label={t('tb.profile')}
-                    onClick={() => { setMobileMoreOpen(false); props.onOpenProfile() }}
-                  />
-                  <Separator className="my-1" />
-                  <MobileMenuButton
-                    icon={<ArrowUpToLine className="size-4 shrink-0" />}
-                    label={t('tb.merge_at_start')}
-                    disabled={!hasPdf || merging}
-                    onClick={() => beginMerge('start')}
-                  />
-                  <MobileMenuButton
-                    icon={<ArrowDownToLine className="size-4 shrink-0" />}
-                    label={t('tb.merge_at_end')}
-                    disabled={!hasPdf || merging}
-                    onClick={() => beginMerge('end')}
-                  />
-                  <Separator className="my-1" />
-                  <MobileMenuButton
-                    icon={<Undo2 className="size-4 shrink-0" />}
-                    label={t('tb.undo')}
-                    disabled={!hasPdf || !hasAnnotations}
-                    onClick={() => { setMobileMoreOpen(false); undoAnnotation() }}
-                  />
-                  <MobileMenuButton
-                    icon={<Eraser className="size-4 shrink-0" />}
-                    label={t('tb.clear_all')}
-                    disabled={!hasPdf || !hasAnnotations}
-                    onClick={() => {
-                      setMobileMoreOpen(false)
-                      if (confirm(t('confirm.clear_annotations'))) clearAnnotations()
-                    }}
-                  />
-                  <Separator className="my-1" />
-                  <div className="flex items-center justify-between gap-2 rounded px-2 py-1.5">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!hasPdf || zoom <= 0.25}
-                      onClick={() => setZoom(zoom - 0.25)}
-                      aria-label={t('tb.zoom_out')}
-                    >
-                      <ZoomOut className="size-4" />
-                    </Button>
-                    <button
-                      type="button"
-                      disabled={!hasPdf}
-                      onClick={() => setZoom(1)}
-                      className="min-w-12 rounded px-2 font-mono text-xs tabular-nums text-muted-foreground hover:text-foreground disabled:opacity-50"
-                    >
-                      {formatPercent(lang, zoom)}
-                    </button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!hasPdf || zoom >= 4}
-                      onClick={() => setZoom(zoom + 0.25)}
-                      aria-label={t('tb.zoom_in')}
-                    >
-                      <ZoomIn className="size-4" />
-                    </Button>
-                  </div>
-                  <label className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 text-sm hover:bg-accent">
-                    <input
-                      type="checkbox"
-                      checked={compressOnDownload}
-                      onChange={(e) => setCompressOnDownload(e.target.checked)}
-                      className="mt-1 size-4 shrink-0 cursor-pointer accent-primary"
-                    />
-                    <span>
-                      <span className="font-medium">{t('tb.compress_pdf')}</span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {t('tb.compress_hint')}
-                      </span>
-                    </span>
-                  </label>
-                  <Select
-                    value={compressLevel}
-                    onValueChange={(v) => setCompressLevel(v as CompressionLevel)}
-                  >
-                    <SelectTrigger
-                      size="sm"
-                      className="w-full"
-                      disabled={!compressOnDownload}
-                      aria-label={t('tb.compress_level')}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">{t('tb.compress_low')}</SelectItem>
-                      <SelectItem value="mid">{t('tb.compress_mid')}</SelectItem>
-                      <SelectItem value="high">{t('tb.compress_high')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Separator className="my-1" />
-                  <div className="flex items-center justify-between gap-2 rounded px-2 py-1.5">
-                    <LanguagePicker />
-                    <ThemeToggle />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label={t('tb.help')}
-                      onClick={() => { setMobileMoreOpen(false); props.onOpenHelp() }}
-                    >
-                      <HelpCircle className="size-4" />
-                      <span className="ms-1">{t('tb.help')}</span>
-                    </Button>
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-            <MobileActionButton
-              icon={<FileUp className="size-5" />}
-              label={t('tb.open_short')}
-              primary
-              onClick={() => fileRef.current?.click()}
-            />
-            <MobileActionButton
-              icon={<Type className="size-5" />}
-              label={t('tb.text_short')}
-              active={mode === 'text'}
-              disabled={!hasPdf}
-              onClick={() => setMode(mode === 'text' ? 'idle' : 'text')}
-            />
-            <MobileActionButton
-              icon={<MousePointer2 className="size-5" />}
-              label={t('tb.select')}
-              active={mode === 'select'}
-              disabled={!hasPdf}
-              onClick={() => setMode(mode === 'select' ? 'idle' : 'select')}
-            />
-            <MobileActionButton
-              icon={<PenLine className="size-5" />}
-              label={t('tb.sign_short')}
-              active={mode === 'signature' || props.sigModalOpen}
-              disabled={!hasPdf}
-              onClick={() => mode === 'signature' ? setMode('idle') : props.onOpenSignature()}
-            />
-            <MobileActionButton
-              icon={<Download className="size-5" />}
-              label={t('tb.download_short')}
-              primary
-              disabled={!hasPdf}
-              onClick={() => props.onDownload({ compress: compressOnDownload, level: compressLevel })}
-            />
-          </div>
-        </div>
-      </>
-    )
-  }
-
-  if (isMobile) {
-    return (
-      <>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/pdf"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) props.onOpenFile(f)
-            e.currentTarget.value = ''
-          }}
-        />
-        <input
-          ref={mergeInputRef}
-          type="file"
-          accept="application/pdf"
-          className="hidden"
-          onChange={async (e) => {
-            const f = e.target.files?.[0]
-            e.currentTarget.value = ''
-            if (!f || !mergeWhere) return
-            setMerging(true)
-            try {
-              await props.onMergePdf(f, mergeWhere)
-            } finally {
-              setMerging(false)
-              setMergeWhere(null)
-            }
-          }}
-        />
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) void handleImagePicker(f)
-            e.currentTarget.value = ''
-          }}
-        />
-        {renderMobileToolbar()}
-      </>
-    )
-  }
-
   return (
     <header
       className={cn(
         'frosted flex items-center gap-1.5 border-b py-2',
-        // This branch only renders on ≥sm; phones use the fixed bottom
-        // toolbar above so primary actions are always visible.
+        // Phones use the same controls as desktop; horizontal scrolling keeps
+        // every action reachable without a separate duplicate toolbar.
         'overflow-x-auto px-3 [scrollbar-width:thin]',
         'sm:flex-wrap sm:overflow-x-visible',
       )}
@@ -1030,6 +671,12 @@ export function Toolbar(props: ToolbarProps) {
           </button>
         </PopoverContent>
       </Popover>
+      <ToolbarBtn
+        icon={<ListOrdered className="size-4" />}
+        label={t('tb.pages')}
+        disabled={!hasPdf || !props.hasMultiplePages}
+        onClick={props.onOpenPages}
+      />
 
       <Separator orientation="vertical" className="mx-1 h-6 shrink-0" />
 
